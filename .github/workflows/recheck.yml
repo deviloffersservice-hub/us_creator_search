@@ -2,17 +2,18 @@ name: Daily recheck of qualified creators
 
 on:
   schedule:
-    - cron: "30 0 * * *"   # 06:00 IST (00:30 UTC), before the first bulk run
+    - cron: "30 0 * * *"   # 06:00 IST (00:30 UTC)
   workflow_dispatch:
 
+# Separate lane from the hourly pipeline: they write different cells, so both can run at once.
 concurrency:
-  group: creator-sheet
+  group: creator-recheck
   cancel-in-progress: false
 
 jobs:
   recheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 150
     env:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       PYTHONUNBUFFERED: "1"
