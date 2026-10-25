@@ -29,9 +29,12 @@ US_SUBDOMAIN = "www"
 # Run sizes.
 BULK_TARGET = _int("BULK_TARGET", 100)
 MAX_PAGES_PER_BULK_RUN = _int("MAX_PAGES_PER_BULK_RUN", 700)
+# Each run concentrates on the niches with the fewest qualified creators so far.
+FOCUS_NICHES_PER_RUN = _int("FOCUS_NICHES_PER_RUN", 6)
+TOPIC_SUBPAGES = _int("TOPIC_SUBPAGES", 2)  # extra LinkedIn topic pages fetched per focus niche
 # Soft cap so one topic cluster can't fill a whole run; lifted if we run short.
-NICHE_CAP_PER_RUN = _int("NICHE_CAP_PER_RUN", 25)
-SEARCH_QUERIES_PER_RUN = _int("SEARCH_QUERIES_PER_RUN", 6)
+NICHE_CAP_PER_RUN = _int("NICHE_CAP_PER_RUN", 15)
+SEARCH_QUERIES_PER_RUN = _int("SEARCH_QUERIES_PER_RUN", 12)
 # Activity check for creators whose newest public post we found is older than 14 days:
 # their total post count is recorded and compared at later checks. If it rises they have
 # posted since the previous check (= active). Rejected only after WATCH_DAYS with no rise.
@@ -41,7 +44,7 @@ WATCH_MAX_PER_RUN = _int("WATCH_MAX_PER_RUN", 200)
 # Bulk skips people whose newest post we can find is older than this (clearly dormant).
 MAX_SEEN_POST_AGE_DAYS = _int("MAX_SEEN_POST_AGE_DAYS", 90)
 # Recheck visits the least recently checked creators first, up to this many per day.
-RECHECK_MAX_PER_RUN = _int("RECHECK_MAX_PER_RUN", 400)
+RECHECK_MAX_PER_RUN = _int("RECHECK_MAX_PER_RUN", 2000)
 
 # Politeness / blocking.
 REQUEST_DELAY_MIN = _float("REQUEST_DELAY_MIN", 0.8)

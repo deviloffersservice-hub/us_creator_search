@@ -266,3 +266,26 @@ class Fetcher:
 
     def post(self, url: str) -> PostPage:
         return parse_post_page(self.get(url), url)
+
+
+def topic_post_urls(fetcher: "Fetcher", category: str, subtopics: int = 2, max_age_days: int = 180) -> list[str]:
+    """Recent post URLs from LinkedIn's public top-content page for a category, plus a few random
+    subtopic pages. These pages list posts by people working in that field. Older posts are
+    dropped: their pages usually no longer show related posts, so they lead nowhere."""
+    base = f"https://www.linkedin.com/top-content/{category}/"
+    try:
+        page = fetcher.get(base)
+    except NotFound:
+        return []
+    subs = sorted(set(re.findall(rf"https://www\.linkedin\.com/top-content/{re.escape(category)}/[a-z0-9-]+/", page)))
+    pages = [page]
+    for url in random.sample(subs, min(subtopics, len(subs))):
+        try:
+            pages.append(fetcher.get(url))
+        except NotFound:
+            pass
+    now = datetime.now(timezone.utc)
+    urls = [canonical_post_url(u) for p in pages for u in POST_URL_RE.findall(p)]
+    return list(dict.fromkeys(
+        u for u in urls
+        if (aid := activity_id_from_url(u)) and (now - activity_time(aid)).days <= max_age_days))

@@ -7,9 +7,9 @@ It's free: no LinkedIn login, no paid APIs, and it runs on GitHub Actions.
 
 | Script | When (IST) | What it does |
 |---|---|---|
-| `bulk_add.py` | 08:00, 13:00, 18:00 | Adds 100 new creators to the **Bulk** tab as `Pending` |
+| `bulk_add.py` | every hour (:17 past) | Adds 100 new creators to the **Bulk** tab as `Pending` |
 | `verify.py` | right after each bulk run | Re-checks every `Pending`/`Watching` row → `Qualified` / `Rejected` / `Watching`; copies qualified ones to **Qualified** |
-| `recheck.py` | 06:00 daily | Re-checks everyone in **Qualified** → `Active` / `Inactive` / `Out of range` |
+| `recheck.py` | 06:00 daily | Re-checks up to 2,000 creators in **Qualified** (least recently checked first) → `Active` / `Inactive` / `Out of range` |
 
 No duplicates: before adding anyone, the script reads **every tab** in the spreadsheet,
 including the GPT-made tabs. It skips anyone whose LinkedIn profile link is already
@@ -27,8 +27,22 @@ LinkedIn blocks logged-out visitors from profile pages, but it serves **public p
   link's subdomain gives their country: `www.linkedin.com/in/...` = **United States**, while
   `uk.`, `in.`, `ca.` and so on are other countries.
 
-`bulk_add.py` crawls from post to post, newest posts first, and follows US people it hasn't seen.
-It saves its position in the **Crawl Queue** tab so the next run carries on from there.
+`bulk_add.py` crawls from post to post and follows US people it hasn't seen. It saves its position
+in the **Crawl Queue** tab so the next run carries on from there.
+
+**Covering every niche and role.** `creator_search/niches.py` defines about 35 niches and roles:
+HR & People Ops, Recruiting, Venture Capital & Investors, Founders, Software Engineering, AI,
+Data, Cybersecurity, Product, Design, Corporate Finance & Accounting, Investing & Personal
+Finance, Banking & Fintech, Marketing, Sales, Customer Success, Leadership, Career, Consulting,
+Operations & Supply Chain, Project Management, Healthcare, Science, Education, Real Estate,
+Legal, Retail & E-commerce, Hospitality, Sustainability, Writing, Communication, Productivity,
+Wellness, Personal Branding and DEI. Every run picks the **6 niches with the fewest creators in the
+Qualified tab** and starts the crawl inside them. It uses LinkedIn's public topic pages for those
+niches (`linkedin.com/top-content/recruitment-hr/` and so on), crawl-queue posts tagged with them,
+and a web search for them. Related posts stay on-topic, so the crawl finds people in those
+niches, and those niches' candidates are opened first. With hourly runs, every niche gets a
+turn several times a day. To add a niche or role, add an entry to `NICHES` with keywords,
+search phrases and (optionally) topic pages.
 
 **The activity check** (`verify.py`): a creator qualifies right away if we can see a post from the
 last 14 days. If the newest post we can see is older, the creator stays `Watching`. Their total
@@ -115,17 +129,20 @@ US creators with 5K–100K followers in about 10 minutes (median about 10K follo
   their post count goes up.
 - Anyone with no new post after 14 days of checks is `Rejected` with the reason given.
 
-Discovery follows LinkedIn's "related posts", so a run can lean towards one topic cluster.
-A soft cap of 25 per niche per run (`NICHE_CAP_PER_RUN`) pushes the crawl to spread out. You can
-add a public post URL from a niche you want more of to `seeds.txt`.
+A soft cap of 15 per niche per run (`NICHE_CAP_PER_RUN`) stops any single niche from filling a run.
+Niche tags come from each creator's post text, so they're a best guess. LinkedIn doesn't show
+job titles to logged-out visitors.
 
-## GitHub Actions minutes
+## Scale and GitHub Actions
 
-The repo is private, and the GitHub Free plan includes **2,000 Actions minutes/month** for private repos.
-One bulk+verify run takes about 15 minutes and the recheck about 10, which comes to
-**roughly 1,500–1,800 minutes a month**. That's inside the free allowance, but close to it.
-If you run out, either make the repo public (public repos get unlimited minutes, and no secrets
-are stored in the code) or lower `BULK_TARGET` / `MAX_PAGES_PER_BULK_RUN`.
+The repo is public, so GitHub Actions minutes are free and unlimited. Hourly runs mean:
 
-If the **Actions** tab shows nothing after you merge, check **Settings → Actions → General**
-and make sure Actions are allowed for this repository.
+- up to **2,400 new creators a day** go into Bulk (100 per run × 24 runs). That's about 70,000 rows a
+  month, and a Google Sheet holds at most 10 million cells, so after several months move old
+  Bulk rows (Rejected ones especially) into an archive sheet.
+- about 12,000 logged-out LinkedIn page views a day, spread across GitHub's servers. If LinkedIn
+  starts blocking, runs stop politely and pick up again next hour. The run log says so.
+- the daily recheck covers up to 2,000 qualified creators per day, least recently checked first.
+
+If the **Actions** tab shows nothing after a change to the workflow files, check **Settings →
+Actions → General** and make sure Actions are allowed for this repository.

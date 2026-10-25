@@ -15,7 +15,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-from creator_search import config, rules
+from creator_search import config, niches, rules
 from creator_search.linkedin import Blocked, Fetcher, NotFound, to_int
 from creator_search.sheets import Sheet, fmt_date, fmt_time, now_ist, parse_time
 
@@ -69,6 +69,8 @@ def run(limit: int) -> int:
                     notes.append(f"posted since {fmt_date(prev_checked)} ({prev_posts:,} -> {page.total_posts:,} posts)")
             if not a.is_us:
                 notes.append(f"profile now on {a.country}.linkedin.com")
+            if row.get("Niche") not in niches.ALL:  # tagged before the current niche list existed
+                update["Niche"] = niches.classify(f"{page.text} {niches.text_from_post_url(page.url)}")
 
         if page and not page.author.is_us:
             status = "Moved outside US"

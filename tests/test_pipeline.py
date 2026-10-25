@@ -120,20 +120,56 @@ def test_helpers():
     assert niches.classify("") == niches.OTHER
 
 
-def test_frontier_alternates_lanes_and_prefers_new_us_people():
-    from bulk_add import T_CANDIDATE, T_KNOWN, T_OTHER, Frontier
+def _post(slug, days_ago):
+    aid = int((NOW - timedelta(days=days_ago)).timestamp() * 1000) << 22
+    return f"https://www.linkedin.com/posts/{slug}_x-activity-{aid}-ab"
 
-    def post(slug, days_ago):
-        aid = (int((NOW - timedelta(days=days_ago)).timestamp() * 1000) << 22)
-        return f"https://www.linkedin.com/posts/{slug}_x-activity-{aid}-ab"
+
+def test_frontier_alternates_lanes_and_prefers_new_us_people():
+    from bulk_add import K_CANDIDATE, K_KNOWN, K_OTHER, Frontier
 
     f = Frontier(NOW)
-    f.push(post("old-known", 30), T_KNOWN)
-    f.push(post("old-new", 30), T_CANDIDATE)
-    f.push(post("fresh-company", 2), T_OTHER)
-    f.push(post("fresh-new", 3), T_CANDIDATE)
-    f.push(post("old-company", 60), T_OTHER)  # dropped: old and not a US person
+    f.push(_post("old-known", 30), K_KNOWN)
+    f.push(_post("old-new", 30), K_CANDIDATE)
+    f.push(_post("fresh-company", 2), K_OTHER)
+    f.push(_post("fresh-new", 3), K_CANDIDATE)
+    f.push(_post("old-company", 60), K_OTHER)  # dropped: old and not a US person
     assert len(f) == 4
     order = [slug_from_post_url(f.pop()) for _ in range(4)]
     assert order == ["fresh-new", "old-new", "fresh-company", "old-known"]
     assert f.pop() is None
+
+
+def test_frontier_prefers_focus_niches_and_demotes_capped_ones():
+    from bulk_add import K_CANDIDATE, K_SEED, Frontier
+
+    f = Frontier(NOW, focus={"HR & People Ops"})
+    f.push(_post("ai-person", 2), K_CANDIDATE, reactions=500, niche="AI & Machine Learning")
+    f.push(_post("hr-seed", 3), K_SEED, niche="HR & People Ops")
+    f.push(_post("hr-person", 4), K_CANDIDATE, reactions=1, niche="HR & People Ops")
+    assert slug_from_post_url(f.pop()) == "hr-person"
+    assert slug_from_post_url(f.pop()) == "hr-seed"
+    f.push(_post("ai-person-2", 1), K_CANDIDATE, niche="AI & Machine Learning")
+    f.push(_post("sales-seed", 5), K_SEED, niche="Sales")
+    # AI is capped this run: its candidates drop below other seeds in the same (fresh) lane.
+    assert slug_from_post_url(f.pop(frozenset({"AI & Machine Learning"}))) == "sales-seed"
+
+
+def test_niche_tagging_covers_roles():
+    assert niches.classify("We just closed our seed round. Advice for founders fundraising from VCs") \
+        == "Venture Capital & Investors"
+    assert niches.classify("As a recruiter, here is how I screen candidates in talent acquisition") \
+        == "Recruiting & Talent Acquisition"
+    assert niches.classify("Our HR team rebuilt onboarding and the employee experience") == "HR & People Ops"
+    assert niches.classify("Using AI to write better B2B marketing campaigns for your brand") == "Marketing"
+    assert niches.text_from_post_url(
+        "https://www.linkedin.com/posts/jane_how-we-hire-recruiters-activity-7516240991830376448-XUsn") \
+        == "how we hire recruiters"
+
+
+def test_focus_niches_picks_least_covered():
+    counts = {n: 10 for n in niches.ALL}
+    counts["Legal"] = 0
+    counts["Real Estate"] = 2
+    assert niches.focus_niches(counts, 2, rotation=0) == ["Legal", "Real Estate"]
+    assert len(set(niches.focus_niches({}, 6, rotation=5))) == 6

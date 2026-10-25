@@ -26,7 +26,7 @@ QUALIFIED_HEADERS = [
 ]
 
 PROFILE_RE = re.compile(r"linkedin\.com/in/([^/\"'?#\s,)]+)", re.I)
-QUEUE_HEADERS = ["Post URL", "Priority"]
+QUEUE_HEADERS = ["Post URL", "Priority", "Niche"]
 TIME_FMT = "%Y-%m-%d %H:%M"
 
 
@@ -136,12 +136,12 @@ class Sheet:
     def queue(self) -> Tab:
         return self.tab(config.QUEUE_TAB, QUEUE_HEADERS)
 
-    def replace_queue(self, entries: list[tuple[str, int]]):
+    def replace_queue(self, entries: list[tuple]):
         tab = self.queue()
-        tab.ws.batch_clear(["A2:B"])
+        tab.ws.batch_clear(["A2:C"])
         tab.ws.resize(rows=max(len(entries) + 1, 2))
         if entries:
-            tab.ws.update(values=[[u, p] for u, p in entries], range_name="A2", value_input_option="RAW")
+            tab.ws.update(values=[list(e) for e in entries], range_name="A2", value_input_option="RAW")
 
     def known_creators(self) -> tuple[set[str], set[str], list[str]]:
         """Every LinkedIn profile slug, creator name and post URL already anywhere in the spreadsheet.

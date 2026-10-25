@@ -1,15 +1,20 @@
 """Discover new US LinkedIn creators and append them to the Bulk tab as Pending.
 
 How discovery works (no login, no paid APIs):
-  1. Start from seed post URLs: the crawl queue left by the previous run, recent posts of
-     already-qualified creators, a best-effort free web search, and seeds.txt.
-  2. Fetch each public post page. Every page lists ~10 "More Relevant Posts", each with
-     its author's profile link. The link's subdomain tells us the author's country
-     (www == US), and the post's activity id tells us exactly when it was posted.
-  3. Follow posts by US people not yet in the sheet, freshest first. Each fetched page
-     gives the author's exact follower count and total post count. People who are US,
-     have 5K-100K followers and aren't already anywhere in the spreadsheet are added,
-     preferring those with a post in the last 14 days, until we have --target rows.
+  1. Pick this run's focus niches: the ones with the fewest creators in the Qualified tab
+     (HR, VCs, engineering, finance, ... see creator_search/niches.py), so every niche and
+     role keeps getting filled.
+  2. Seed the crawl with posts from those niches: LinkedIn's public topic pages for them,
+     crawl-queue posts tagged with them, a best-effort web search, plus the general seeds
+     (queue left by the previous run, qualified creators' posts, post links in the sheet,
+     seeds.txt).
+  3. Fetch each public post page. Every page lists ~10 "More Relevant Posts" (usually on
+     the same topic), each with its author's profile link. The link's subdomain gives the
+     author's country (www == US); the post's activity id gives its exact time.
+  4. Follow posts by US people not yet in the sheet: focus niches first, alternating
+     between fresh posts and new people. Each fetched page gives the author's exact
+     follower count and total post count. People who are US, have 5K-100K followers and
+     aren't already anywhere in the spreadsheet are added, until we have --target rows.
 
 verify.py then re-checks every Pending row independently (including activity).
 """
@@ -18,89 +23,115 @@ from __future__ import annotations
 import argparse
 import heapq
 import logging
+import random
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 from creator_search import config, niches, rules
 from creator_search.linkedin import (Blocked, Fetcher, NotFound, activity_id_from_url, activity_time,
-                                     canonical_post_url, normalize_slug, profile_url)
+                                     canonical_post_url, normalize_slug, profile_url, topic_post_urls)
 from creator_search.search import recent_post_urls
 from creator_search.sheets import PROFILE_RE, Sheet, fmt_date, fmt_time, normalize_name, now_ist, parse_time
 
 log = logging.getLogger("bulk_add")
 
-# Crawl order. Two lanes, taken in turn:
-#   fresh lane:     posts from the last 14 days (a page's related posts are usually from
-#                   around the same time, so this keeps the crawl anchored to the present
-#                   and finds people who are visibly active);
-#   candidate lane: older posts by US people we haven't seen yet (finds more creators per
-#                   page; verify.py then checks their activity via their post count).
-# Within a lane: unknown US people > seeds > known US people > non-US / company pages,
-# then more reactions first (bigger audiences get more reactions), then newest.
-T_CANDIDATE, T_SEED, T_KNOWN, T_OTHER = 0, 1, 2, 3
+# What a queued post is. Stored as these numbers in the Crawl Queue tab.
+K_CANDIDATE, K_SEED, K_KNOWN, K_OTHER = 0, 1, 2, 3
 
 
 class Frontier:
-    def __init__(self, now: datetime):
+    """Which post page to fetch next.
+
+    Focus-niche pages always come first; everything else only once those run out. Within
+    each of those two groups, two lanes are taken in turn:
+      fresh lane:     posts from the last 14 days (a page's related posts are usually from
+                      around the same time, so this keeps the crawl anchored to the present);
+      candidate lane: older posts by US people we haven't seen yet (more creators per page;
+                      verify.py then checks their activity via their post count).
+    Within a lane, by tier: focus-niche candidates > focus-niche seeds / known people >
+    other candidates > other seeds > other known people > non-US / company pages; then more
+    reactions first (bigger audiences get more reactions); then newest.
+    """
+    FOCUS_TIERS = 2  # tiers 0 and 1
+
+    def __init__(self, now: datetime, focus: set[str] = frozenset()):
         self.now = now
-        self.fresh: list[tuple] = []
-        self.older: list[tuple] = []
-        self.tier: dict[str, int] = {}
-        self.niche: dict[str, str] = {}
+        self.focus = set(focus)
+        # [focus fresh, focus older, rest fresh, rest older]
+        self.heaps: list[list[tuple]] = [[], [], [], []]
+        self.entry: dict[str, tuple[int, int, str]] = {}  # url -> (tier, kind, niche)
         self.visited: set[str] = set()
         self._n = 0
         self._turn = 0
 
-    def _is_fresh(self, aid: str | None) -> bool:
-        return bool(aid) and rules.recent(activity_time(aid), self.now)
+    def tier(self, kind: int, niche: str) -> int:
+        if kind == K_OTHER:
+            return 5
+        in_focus = niche in self.focus
+        if kind == K_CANDIDATE:
+            return 0 if in_focus else 2
+        if in_focus:
+            return 1
+        return 3 if kind == K_SEED else 4
 
-    def push(self, url: str, tier: int, reactions: int = 0, niche: str = ""):
+    def push(self, url: str, kind: int, reactions: int = 0, niche: str = ""):
         url = canonical_post_url(url)
-        if url in self.visited or self.tier.get(url, 99) <= tier:
+        tier = self.tier(kind, niche)
+        if url in self.visited or (url in self.entry and self.entry[url][0] <= tier):
             return
         aid = activity_id_from_url(url)
-        fresh = self._is_fresh(aid)
-        if not fresh and tier == T_OTHER:
+        fresh = bool(aid) and rules.recent(activity_time(aid), self.now)
+        if not fresh and kind == K_OTHER:
             return  # old non-US/company pages lead nowhere useful
-        self.tier[url] = tier
-        self.niche[url] = niche
+        self.entry[url] = (tier, kind, niche)
         self._n += 1
-        heapq.heappush(self.fresh if fresh else self.older, (tier, -reactions, -int(aid or 0), self._n, url))
+        heapq.heappush(self._heap(tier, fresh), (tier, -reactions, -int(aid or 0), self._n, url))
+
+    def _heap(self, tier: int, fresh: bool) -> list:
+        return self.heaps[(0 if tier < self.FOCUS_TIERS else 2) + (0 if fresh else 1)]
 
     def pop(self, capped_niches: frozenset = frozenset()) -> str | None:
-        """Candidates from niches that already hit this run's cap are demoted to T_KNOWN."""
+        """Candidates from niches that already hit this run's cap are demoted to 'known'."""
         self._turn += 1
-        lanes = (self.fresh, self.older) if self._turn % 2 else (self.older, self.fresh)
+        f_fresh, f_older, r_fresh, r_older = self.heaps
+        lanes = [f_fresh, f_older, r_fresh, r_older] if self._turn % 2 else [f_older, f_fresh, r_older, r_fresh]
         for heap in lanes:
             while heap:
                 tier, neg_reactions, neg_aid, _, url = heapq.heappop(heap)
-                if url in self.visited or self.tier.get(url) != tier:
+                if url in self.visited or self.entry.get(url, (None,))[0] != tier:
                     continue  # already fetched, or superseded by a better-tier push
-                if tier == T_CANDIDATE and self.niche.get(url) in capped_niches:
-                    self.tier[url] = T_KNOWN
+                _, kind, niche = self.entry[url]
+                if kind == K_CANDIDATE and niche in capped_niches:
+                    demoted = self.tier(K_KNOWN, niche)
+                    self.entry[url] = (demoted, K_KNOWN, niche)
                     self._n += 1
-                    heapq.heappush(heap, (T_KNOWN, neg_reactions, neg_aid, self._n, url))
+                    fresh = heap is f_fresh or heap is r_fresh
+                    heapq.heappush(self._heap(demoted, fresh), (demoted, neg_reactions, neg_aid, self._n, url))
                     continue
                 self.visited.add(url)
-                del self.tier[url]
-                self.niche.pop(url, None)
+                del self.entry[url]
                 return url
         return None
 
     def __len__(self):
-        return len(self.tier)
+        return len(self.entry)
 
-    def leftovers(self, limit: int) -> list[tuple[str, int]]:
+    def leftovers(self, limit: int) -> list[tuple[str, int, str]]:
         out = []
-        for _, entry in sorted([(0, e) for e in self.fresh] + [(1, e) for e in self.older]):
+        for _, entry in sorted((i, e) for i, heap in enumerate(self.heaps) for e in heap):
             tier, *_, url = entry
-            if self.tier.get(url) == tier:
-                out.append((url, tier))
+            if self.entry.get(url, (None,))[0] == tier:
+                out.append((url, self.entry[url][1], self.entry[url][2]))
                 if len(out) >= limit:
                     break
         return out
+
+
+def tag(text: str, url: str) -> str:
+    return niches.classify(f"{text} {niches.text_from_post_url(url)}")
 
 
 def load_seed_file() -> list[str]:
@@ -111,47 +142,59 @@ def load_seed_file() -> list[str]:
             if line.strip() and not line.startswith("#")]
 
 
-def search_terms_for_this_run() -> list[str]:
-    now = now_ist()
-    slot = now.timetuple().tm_yday * 3 + now.hour // 8
-    n = config.SEARCH_QUERIES_PER_RUN
-    terms = niches.SEARCH_TERMS
-    start = (slot * n) % len(terms)
-    return [terms[(start + i) % len(terms)] for i in range(n)]
-
-
 def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
     sheet = Sheet() if use_sheet else None
     known_slugs: set[str] = set()
     known_names: set[str] = set()
     qualified_rows: dict[str, dict] = {}
+    niche_counts: Counter = Counter()
     now = datetime.now(timezone.utc)
-    frontier = Frontier(now)
+    queue_rows: list[dict] = []
+    sheet_posts: list[str] = []
 
     if sheet:
         bulk, qual = sheet.bulk(), sheet.qualified()
         known_slugs, known_names, sheet_posts = sheet.known_creators()
-        for url in sheet_posts:
-            frontier.push(url, T_SEED)
         for row in qual.rows():
+            niche_counts[row.get("Niche", "")] += 1
             m = PROFILE_RE.search(row.get("Profile URL", ""))
             if m:
                 qualified_rows[normalize_slug(m.group(1))] = row
-        for row in sheet.queue().rows():
-            if row.get("Post URL"):
-                tier = int(row.get("Priority") or T_KNOWN)
-                frontier.push(row["Post URL"], min(max(tier, T_CANDIDATE), T_OTHER))
-        for row in qualified_rows.values():
-            if row.get("Latest Post URL"):
-                frontier.push(row["Latest Post URL"], T_SEED)
+        queue_rows = sheet.queue().rows()
+
+    focus = niches.focus_niches(niche_counts, config.FOCUS_NICHES_PER_RUN, rotation=int(time.time() // 3600))
+    log.info("focus niches this run: %s", ", ".join(focus))
+    frontier = Frontier(now, set(focus))
+    fetcher = Fetcher()
+
+    # Seeds for the focus niches first: LinkedIn topic pages and web search.
+    for niche in focus:
+        topics = niches.NICHES[niche]["topics"]
+        if topics:
+            for url in topic_post_urls(fetcher, random.choice(topics), subtopics=config.TOPIC_SUBPAGES):
+                frontier.push(url, K_SEED, niche=niche)
     if use_search:
-        for url in recent_post_urls(search_terms_for_this_run()):
-            frontier.push(url, T_SEED)
-    for url in load_seed_file():
-        frontier.push(url, T_SEED)
+        # Up to 2 phrases per focus niche; every niche's first phrase goes before any second one.
+        picks = {n: random.sample(niches.NICHES[n]["search"], min(2, len(niches.NICHES[n]["search"])))
+                 for n in focus}
+        phrase_niche = {picks[n][i]: n for i in range(2) for n in focus if i < len(picks[n])}
+        found = recent_post_urls(list(phrase_niche)[: config.SEARCH_QUERIES_PER_RUN])
+        for phrase, urls in found.items():
+            for url in urls:
+                frontier.push(url, K_SEED, niche=phrase_niche[phrase])
+    # General seeds.
+    for row in queue_rows:
+        if row.get("Post URL"):
+            kind = int(row.get("Priority") or K_KNOWN)
+            kind = min(max(kind, K_CANDIDATE), K_OTHER)
+            frontier.push(row["Post URL"], kind, niche=row.get("Niche") or tag("", row["Post URL"]))
+    for row in qualified_rows.values():
+        if row.get("Latest Post URL"):
+            frontier.push(row["Latest Post URL"], K_SEED, niche=row.get("Niche", ""))
+    for url in sheet_posts + load_seed_file():
+        frontier.push(url, K_SEED, niche=tag("", url))
     log.info("starting with %d queued posts", len(frontier))
 
-    fetcher = Fetcher()
     fresh: list[dict] = []  # newest post found is within 14 days
     older: list[dict] = []  # fits otherwise; verify.py watches their post count for new posts
     overflow: list[dict] = []  # fits, but its niche hit the per-run cap
@@ -196,9 +239,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
             saw(ra.slug, r.published, r.url)
             if ra.is_person and ra.is_us:
                 known = ra.slug in known_slugs or ra.slug in decided
-                frontier.push(r.url, T_KNOWN if known else T_CANDIDATE, r.reactions, niches.classify(r.text))
+                frontier.push(r.url, K_KNOWN if known else K_CANDIDATE, r.reactions, tag(r.text, r.url))
             else:
-                frontier.push(r.url, T_OTHER)
+                frontier.push(r.url, K_OTHER, niche=tag(r.text, r.url))
 
         if not a.is_person or not a.slug or a.slug in decided:
             continue
@@ -212,7 +255,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
         last_seen, last_url = newest[a.slug]
         if not rules.recent(last_seen, now, days=config.MAX_SEEN_POST_AGE_DAYS):
             continue
-        niche = niches.classify(page.text)
+        niche = tag(page.text, page.url)
         record = {
             "Added At (IST)": fmt_time(now_ist()),
             "Name": a.name,
@@ -245,6 +288,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
         r["Newest Post Seen"], r["Source Post URL"] = fmt_date(last_seen), last_url
     log.info("fetched %d pages, %d new creators (%d with a post in the last %d days)", pages, len(added),
              sum(1 for r in added if r in fresh), config.MAX_POST_AGE_DAYS)
+    log.info("niches added: %s", dict(Counter(r["Niche"] for r in added).most_common()))
 
     if sheet:
         bulk.append(added)
