@@ -50,6 +50,12 @@ Qualified tab up to date.
 - The free DuckDuckGo search that adds extra seed posts is often rate-limited. The crawler
   doesn't depend on it.
 
+## Current setup
+
+- Google Cloud project: `creator-search-962321` (owned by singhadi.aditya24@gmail.com)
+- Service account: `creator-bot@creator-search-962321.iam.gserviceaccount.com`. It needs **Editor**
+  access on the sheet, and its JSON key goes in the `GOOGLE_SERVICE_ACCOUNT_JSON` repo secret.
+
 ## Setup (one time, about 10 minutes)
 
 ### 1. Create a Google service account (free)
