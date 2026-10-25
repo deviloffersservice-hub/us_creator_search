@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Never commit the Google key; it lives in the GOOGLE_SERVICE_ACCOUNT_JSON secret.
+service_account.json
+*.json.key

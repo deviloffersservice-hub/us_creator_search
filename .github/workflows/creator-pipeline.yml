@@ -1,0 +1,41 @@
+name: Creator pipeline (bulk add + verify)
+
+on:
+  schedule:
+    # GitHub cron is UTC. IST = UTC+5:30.
+    - cron: "30 2 * * *"   # 08:00 IST
+    - cron: "30 7 * * *"   # 13:00 IST
+    - cron: "30 12 * * *"  # 18:00 IST
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "How many creators to add to the Bulk tab"
+        default: "100"
+
+# Never let two runs write to the sheet at the same time.
+concurrency:
+  group: creator-sheet
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Bulk add creators
+        run: python bulk_add.py --target "${{ inputs.target || '100' }}"
+
+      - name: Verify creators
+        # Runs even if bulk add hit a problem, so already-added rows still get verified.
+        if: ${{ !cancelled() }}
+        run: python verify.py

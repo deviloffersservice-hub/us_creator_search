@@ -1,0 +1,6 @@
+# Starter public post URLs. Only needed for the very first runs: after that the crawl
+# queue in the "Crawl Queue" tab and the qualified creators' posts keep discovery going.
+# Add any public LinkedIn post URL here (one per line) to steer the crawl into a niche.
+https://www.linkedin.com/posts/michaeldonnelly1_ai-marketing-growth-activity-7516134806238441472-MFfk
+https://www.linkedin.com/posts/jimsabellico_ai-has-made-it-unbelievably-easy-to-create-activity-7509235923721551874-E6fA
+https://www.linkedin.com/posts/daniel-molina-bb9b542b_who-would-you-rather-trust-to-run-your-company-activity-7516240991830376448-XUsn
