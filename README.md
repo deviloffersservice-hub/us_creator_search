@@ -77,9 +77,11 @@ In this repo, go to **Settings → Secrets and variables → Actions → New rep
 Then delete the JSON file from your computer, or keep it somewhere safe. Never commit it.
 
 ### 4. Turn it on
-GitHub only runs scheduled workflows from the repository's **default branch**, so merge this
-code into `main` (or make its branch the default). Then go to **Actions → Creator pipeline → Run workflow**
-to test it right away.
+GitHub only runs scheduled workflows from the repository's **default branch**. Right now that's
+`claude/gallant-edison-hjrvij`, because it was the first branch pushed to this empty repo. If you
+later create `main`, merge this code into it and make `main` the default. To test right away, go to
+**Actions → Creator pipeline (bulk add + verify) → Run workflow**. Tick **Dry run** to just crawl
+and print results without touching the sheet.
 
 ## Running locally
 
@@ -96,10 +98,28 @@ python -m pytest                    # offline tests
 All thresholds (followers range, 14 days, 100 per run, delays, and so on) are in
 `creator_search/config.py`, and each can be overridden with an environment variable of the same name.
 
+## What to expect
+
+Measured on a test run: one bulk run opens about 375–500 post pages and finds 100 new
+US creators with 5K–100K followers in about 10 minutes (median about 10K followers). On that run:
+
+- About 10–20% had a post from the last 14 days, so they're `Qualified` straight away.
+- Most others had a post visible from the last 2–6 weeks. They start as `Watching`, and the
+  prolific ones (many have 1,000+ posts in total) move to `Qualified` on a later run once
+  their post count goes up.
+- Anyone with no new post after 14 days of checks is `Rejected` with the reason given.
+
+Discovery follows LinkedIn's "related posts", so a run can lean towards one topic cluster.
+A soft cap of 25 per niche per run (`NICHE_CAP_PER_RUN`) pushes the crawl to spread out. You can
+add a public post URL from a niche you want more of to `seeds.txt`.
+
 ## GitHub Actions minutes
 
 The repo is private, and the GitHub Free plan includes **2,000 Actions minutes/month** for private repos.
-Each bulk+verify run takes roughly 10–20 minutes and the recheck about 10, which adds up to
-roughly 1,200–2,000 minutes a month. If you hit the limit, either make the repo public (public
-repos get unlimited minutes; no secrets are stored in the code) or lower `BULK_TARGET` /
-`MAX_PAGES_PER_BULK_RUN`.
+One bulk+verify run takes about 15 minutes and the recheck about 10, which comes to
+**roughly 1,500–1,800 minutes a month**. That's inside the free allowance, but close to it.
+If you run out, either make the repo public (public repos get unlimited minutes, and no secrets
+are stored in the code) or lower `BULK_TARGET` / `MAX_PAGES_PER_BULK_RUN`.
+
+If the **Actions** tab shows nothing after you merge, check **Settings → Actions → General**
+and make sure Actions are allowed for this repository.

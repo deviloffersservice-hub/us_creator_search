@@ -31,53 +31,62 @@ from creator_search.sheets import PROFILE_RE, Sheet, fmt_date, fmt_time, normali
 
 log = logging.getLogger("bulk_add")
 
-# Crawl order. Pages by US people we haven't seen are where new creators come from, so they
-# go first; staying near the present matters too, because a page's related posts are usually
-# from around the same time, so old pages lead to inactive people. Non-US / company pages are
-# only used to escape a cluster that has run dry. Ties go to posts with more reactions
-# (bigger audiences get more reactions, so 5K+ accounts surface sooner), then newest.
+# Crawl order. Two lanes, taken in turn:
+#   fresh lane:     posts from the last 14 days (a page's related posts are usually from
+#                   around the same time, so this keeps the crawl anchored to the present
+#                   and finds people who are visibly active);
+#   candidate lane: older posts by US people we haven't seen yet (finds more creators per
+#                   page; verify.py then checks their activity via their post count).
+# Within a lane: unknown US people > seeds > known US people > non-US / company pages,
+# then more reactions first (bigger audiences get more reactions), then newest.
 T_CANDIDATE, T_SEED, T_KNOWN, T_OTHER = 0, 1, 2, 3
-AGE_BANDS_DAYS = (config.MAX_POST_AGE_DAYS, 45, 120)  # band 0, 1, 2; older = band 3
-CRAWL_CLASS = {  # (tier, age band) -> crawl class, lower first
-    (T_CANDIDATE, 0): 0, (T_CANDIDATE, 1): 1,
-    (T_SEED, 0): 2, (T_KNOWN, 0): 2, (T_SEED, 1): 3, (T_KNOWN, 1): 3,
-    (T_CANDIDATE, 2): 4, (T_OTHER, 0): 5,
-}
-LAST_CLASS = 6
 
 
 class Frontier:
     def __init__(self, now: datetime):
         self.now = now
-        self.heap: list[tuple] = []
+        self.fresh: list[tuple] = []
+        self.older: list[tuple] = []
         self.tier: dict[str, int] = {}
+        self.niche: dict[str, str] = {}
         self.visited: set[str] = set()
         self._n = 0
+        self._turn = 0
 
-    def _age_band(self, aid: str | None) -> int:
-        if not aid:
-            return len(AGE_BANDS_DAYS)
-        days = (self.now - activity_time(aid)).days
-        return next((i for i, d in enumerate(AGE_BANDS_DAYS) if days <= d), len(AGE_BANDS_DAYS))
+    def _is_fresh(self, aid: str | None) -> bool:
+        return bool(aid) and rules.recent(activity_time(aid), self.now)
 
-    def push(self, url: str, tier: int, reactions: int = 0):
+    def push(self, url: str, tier: int, reactions: int = 0, niche: str = ""):
         url = canonical_post_url(url)
         if url in self.visited or self.tier.get(url, 99) <= tier:
             return
-        self.tier[url] = tier
         aid = activity_id_from_url(url)
+        fresh = self._is_fresh(aid)
+        if not fresh and tier == T_OTHER:
+            return  # old non-US/company pages lead nowhere useful
+        self.tier[url] = tier
+        self.niche[url] = niche
         self._n += 1
-        cls = CRAWL_CLASS.get((tier, self._age_band(aid)), LAST_CLASS)
-        heapq.heappush(self.heap, (cls, tier, -reactions, -int(aid or 0), self._n, url))
+        heapq.heappush(self.fresh if fresh else self.older, (tier, -reactions, -int(aid or 0), self._n, url))
 
-    def pop(self) -> str | None:
-        while self.heap:
-            _, tier, *_, url = heapq.heappop(self.heap)
-            if url in self.visited or self.tier.get(url) != tier:
-                continue  # already fetched, or superseded by a better-tier push
-            self.visited.add(url)
-            del self.tier[url]
-            return url
+    def pop(self, capped_niches: frozenset = frozenset()) -> str | None:
+        """Candidates from niches that already hit this run's cap are demoted to T_KNOWN."""
+        self._turn += 1
+        lanes = (self.fresh, self.older) if self._turn % 2 else (self.older, self.fresh)
+        for heap in lanes:
+            while heap:
+                tier, neg_reactions, neg_aid, _, url = heapq.heappop(heap)
+                if url in self.visited or self.tier.get(url) != tier:
+                    continue  # already fetched, or superseded by a better-tier push
+                if tier == T_CANDIDATE and self.niche.get(url) in capped_niches:
+                    self.tier[url] = T_KNOWN
+                    self._n += 1
+                    heapq.heappush(heap, (T_KNOWN, neg_reactions, neg_aid, self._n, url))
+                    continue
+                self.visited.add(url)
+                del self.tier[url]
+                self.niche.pop(url, None)
+                return url
         return None
 
     def __len__(self):
@@ -85,7 +94,8 @@ class Frontier:
 
     def leftovers(self, limit: int) -> list[tuple[str, int]]:
         out = []
-        for _, tier, *_, url in sorted(self.heap):
+        for _, entry in sorted([(0, e) for e in self.fresh] + [(1, e) for e in self.older]):
+            tier, *_, url = entry
             if self.tier.get(url) == tier:
                 out.append((url, tier))
                 if len(out) >= limit:
@@ -158,10 +168,11 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
     def done() -> bool:
         if len(fresh) >= target:
             return True
-        return len(fresh) + len(older) >= target and pages >= max_pages // 2
+        return len(fresh) + len(older) + len(overflow) >= target and pages >= max_pages // 2
 
     while not done() and pages < max_pages:
-        url = frontier.pop()
+        capped = frozenset(n for n, c in per_niche.items() if c >= config.NICHE_CAP_PER_RUN)
+        url = frontier.pop(capped)
         if not url:
             log.info("frontier exhausted")
             break
@@ -175,8 +186,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
             break
         pages += 1
         if pages % 25 == 0:
-            log.info("progress: %d pages, %d fresh + %d older found, %d posts queued",
-                     pages, len(fresh), len(older), len(frontier))
+            log.info("progress: %d pages, %d fresh + %d older + %d spare found, %d posts queued",
+                     pages, len(fresh), len(older), len(overflow), len(frontier))
         a = page.author
         saw(a.slug, page.published, page.url)
 
@@ -185,7 +196,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
             saw(ra.slug, r.published, r.url)
             if ra.is_person and ra.is_us:
                 known = ra.slug in known_slugs or ra.slug in decided
-                frontier.push(r.url, T_KNOWN if known else T_CANDIDATE, r.reactions)
+                frontier.push(r.url, T_KNOWN if known else T_CANDIDATE, r.reactions, niches.classify(r.text))
             else:
                 frontier.push(r.url, T_OTHER)
 
@@ -217,6 +228,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
         }
         if per_niche[niche] >= config.NICHE_CAP_PER_RUN:
             overflow.append(record)
+            log.info("[spare %d] %s | %s (niche already has %d this run)", len(overflow), a.name, niche,
+                     per_niche[niche])
             continue
         per_niche[niche] += 1
         (fresh if rules.recent(last_seen, now) else older).append(record)

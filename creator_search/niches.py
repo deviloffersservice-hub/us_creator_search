@@ -29,7 +29,12 @@ NICHES: dict[str, list[str]] = {
     "Customer Success & Support": ["customer success", "customer experience", "cx", "support", "retention", "churn"],
 }
 
-_PATTERNS = {n: [re.compile(rf"(?<![\w]){re.escape(k)}(?![\w])", re.I) for k in kws] for n, kws in NICHES.items()}
+# Words nearly every post uses nowadays count for less, so a marketing post that mentions AI
+# is still tagged Marketing.
+GENERIC = {"ai", "data", "content", "growth", "team", "product", "design", "job", "health", "money",
+           "learning", "support", "operations", "linkedin", "creator", "leader", "markets", "law", "security"}
+_PATTERNS = {n: [(re.compile(rf"(?<![\w]){re.escape(k)}(?![\w])", re.I), 0.3 if k in GENERIC else 1.0)
+                 for k in kws] for n, kws in NICHES.items()}
 
 OTHER = "General / Other"
 
@@ -40,7 +45,7 @@ def classify(text: str) -> str:
     text = text.replace("#", " ")
     best, best_score = OTHER, 0
     for niche, pats in _PATTERNS.items():
-        score = sum(len(p.findall(text)) for p in pats)
+        score = sum(len(p.findall(text)) * w for p, w in pats)
         if score > best_score:
             best, best_score = niche, score
     return best

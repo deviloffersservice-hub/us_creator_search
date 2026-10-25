@@ -28,8 +28,12 @@ def recent_post_urls(terms: list[str], per_query: int = 25) -> list[str]:
             log.info("search engine is rate-limiting us; skipping the remaining queries")
             break
         try:
-            results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en",
-                                  timelimit="w", max_results=per_query, backend="duckduckgo")
+            try:
+                results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en",
+                                      timelimit="w", max_results=per_query, backend="duckduckgo")
+            except Exception:  # let ddgs try its other engines once
+                results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en",
+                                      timelimit="w", max_results=per_query, backend="auto")
         except Exception as e:  # ddgs raises its own exception types for blocks/no results
             log.info("search %r gave nothing (%s)", term, str(e)[:120])
             failures += 1

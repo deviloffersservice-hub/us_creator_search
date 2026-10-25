@@ -118,3 +118,22 @@ def test_helpers():
     assert canonical_post_url("https://de.linkedin.com/posts/a_b?trk=1&amp;x=2") == "https://www.linkedin.com/posts/a_b"
     assert niches.classify("Tips for your B2B sales pipeline and prospecting") == "Sales"
     assert niches.classify("") == niches.OTHER
+
+
+def test_frontier_alternates_lanes_and_prefers_new_us_people():
+    from bulk_add import T_CANDIDATE, T_KNOWN, T_OTHER, Frontier
+
+    def post(slug, days_ago):
+        aid = (int((NOW - timedelta(days=days_ago)).timestamp() * 1000) << 22)
+        return f"https://www.linkedin.com/posts/{slug}_x-activity-{aid}-ab"
+
+    f = Frontier(NOW)
+    f.push(post("old-known", 30), T_KNOWN)
+    f.push(post("old-new", 30), T_CANDIDATE)
+    f.push(post("fresh-company", 2), T_OTHER)
+    f.push(post("fresh-new", 3), T_CANDIDATE)
+    f.push(post("old-company", 60), T_OTHER)  # dropped: old and not a US person
+    assert len(f) == 4
+    order = [slug_from_post_url(f.pop()) for _ in range(4)]
+    assert order == ["fresh-new", "old-new", "fresh-company", "old-known"]
+    assert f.pop() is None

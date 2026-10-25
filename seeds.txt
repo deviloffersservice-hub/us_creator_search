@@ -1,6 +1,50 @@
-# Starter public post URLs. Only needed for the very first runs: after that the crawl
-# queue in the "Crawl Queue" tab and the qualified creators' posts keep discovery going.
-# Add any public LinkedIn post URL here (one per line) to steer the crawl into a niche.
+# Starter public post URLs (one per line). Only really needed for the very first runs: after
+# that the "Crawl Queue" tab, the qualified creators' posts and any post links in the sheet keep
+# discovery going. Fresh posts (last 2 weeks) work best, because a post page's related posts are
+# usually from around the same time. Add a post from a niche you want more of to steer the crawl.
+https://www.linkedin.com/posts/nlarusstone_day-2-of-an-agent-a-day-keeps-phase-2-failures-activity-7518408616236695552-bD2k
+https://www.linkedin.com/posts/reidcarr_i-think-we-need-to-get-past-thinking-and-activity-7518353357368082432-80h3
+https://www.linkedin.com/posts/alexdbennett_ai-is-changing-marketing-just-like-everything-activity-7518294357712490496-eQV9
+https://www.linkedin.com/posts/niko-javakhishvili_ai-aistrategy-marketing-activity-7518228009569447937-yRy9
+https://www.linkedin.com/posts/saquibsam_ai-companies-dont-just-need-better-models-activity-7518231551390875649-EBHD
+https://www.linkedin.com/posts/katieholyfield_testimonial-tripadvisor-activity-7518035812395974656-y-CF
+https://www.linkedin.com/posts/greencharlie_the-most-useful-ai-features-i-have-worked-activity-7518302705115869186-nBz5
+https://www.linkedin.com/posts/mikelarkinpromo_one-of-the-biggest-challenges-ive-wrestled-activity-7518323297407651841-oezO
+https://www.linkedin.com/posts/jeffhonforloco_buildinpublic-ai-productdevelopment-activity-7518330282974789632-jQlB
+https://www.linkedin.com/posts/peiruteo_one-of-the-harder-decisions-in-building-an-activity-7518280874069712896-TWB9
+https://www.linkedin.com/posts/benjamindelisle_ai-marketing-b2bmarketing-activity-7517931470620049408-IumM
+https://www.linkedin.com/posts/jon-englund_ai-marketing-homeservices-activity-7517981257587167233-62eb
+https://www.linkedin.com/posts/gowthami-peri-10762713_embeddingmodels-generativeai-machinelearning-activity-7517955315246489600-CyGp
+https://www.linkedin.com/posts/vince-porretta-4231014a_ai-is-going-to-replace-humans-apparently-activity-7517971745245548545-ymyp
+https://www.linkedin.com/posts/georg-huettenegger_sakana-ais-self-improving-model-gets-better-activity-7517883128347144192-HAew
+https://www.linkedin.com/posts/iankhanfuturist_boards-are-starting-to-ask-better-questions-activity-7517920702516187136-oEKj
+https://www.linkedin.com/posts/shane-emmons_one-of-my-favorite-uses-of-ai-is-to-train-activity-7516985673531330560-9d9U
+https://www.linkedin.com/posts/jayclouse_the-easier-it-becomes-to-create-the-more-activity-7516862361522245632-3jqj
+https://www.linkedin.com/posts/garry-anzaroot_testimonial-tripadvisor-activity-7516567378697084928-JD8P
+https://www.linkedin.com/posts/derek-walker-8741578_me-are-these-ai-generated-questions-activity-7516856091327086592-6R9s
+https://www.linkedin.com/posts/james-kunkle-pcs-a03a0817_therundown-ai-human-activity-7516815438002126848-nzds
+https://www.linkedin.com/posts/nir-hod-82b373_testimonial-tripadvisor-activity-7516514327714230272-qP9L
+https://www.linkedin.com/posts/teppofelin_with-all-this-ai-hype-i-think-we-have-the-activity-7516542497075052544-ljj7
+https://www.linkedin.com/posts/omergotlieb_i-think-companies-are-seriously-underestimating-activity-7516520337040371714-FQZc
+https://www.linkedin.com/posts/jamesmurphy1337_if-you-were-wondering-the-answer-is-yes-activity-7516226264945545217-tWmX
+https://www.linkedin.com/posts/shira-charles-021551121_ai-realestate-activity-7516542603404726272-VsGV
+https://www.linkedin.com/posts/andie-leonie-howard_the-ai-just-predicts-the-next-word-crowd-activity-7516429983414644736-hPK-
+https://www.linkedin.com/posts/jhoech_10-ai-tools-everyone-will-be-using-in-six-activity-7516517061817155584-Y8Kn
+https://www.linkedin.com/posts/jsarinelli_phoenix-ai-googleworkspace-activity-7516523682723192833-utEu
+https://www.linkedin.com/posts/amberowens_what-does-ai-really-cost-moving-an-ai-tool-activity-7516468818198626304-AsdY
 https://www.linkedin.com/posts/michaeldonnelly1_ai-marketing-growth-activity-7516134806238441472-MFfk
-https://www.linkedin.com/posts/jimsabellico_ai-has-made-it-unbelievably-easy-to-create-activity-7509235923721551874-E6fA
-https://www.linkedin.com/posts/daniel-molina-bb9b542b_who-would-you-rather-trust-to-run-your-company-activity-7516240991830376448-XUsn
+https://www.linkedin.com/posts/abhayparasnis_ai-visibility-gap-the-typeface-signal-report-activity-7516151177760145408-_voV
+https://www.linkedin.com/posts/maitrimangal_zetalive26-zetaglobal-zetapartner-activity-7516123635062034432-lYO0
+https://www.linkedin.com/posts/sdmktgguy_ai-aimarketing-activity-7515864402391212032-P9OW
+https://www.linkedin.com/posts/lewinwanzer_good-post-i-would-take-this-one-step-further-activity-7515852422775488512-vbNS
+https://www.linkedin.com/posts/manisha-lodha-b72713200_what-actually-makes-an-ai-agent-intelligent-activity-7515984734284513280-ImsT
+https://www.linkedin.com/posts/alessioalionco_when-someone-tells-me-their-ai-pilot-hasn-activity-7516147292752650240-NIwJ
+https://www.linkedin.com/posts/gregrand_futureofwork-ai-careeradvice-activity-7515846670375362560-Z3ic
+https://www.linkedin.com/posts/lexmustafin_claudecode-aiagents-contextengineering-activity-7515834492331319296-0Pba
+https://www.linkedin.com/posts/oleg-danyliuk_%F0%9D%90%98%F0%9D%90%A8%F0%9D%90%AE%F0%9D%90%AB-%F0%9D%9F%93%F0%9D%9F%8E%F0%9D%9F%8E%F0%9D%90%8A-%F0%9D%90%80%F0%9D%90%88-%F0%9D%90%A9%F0%9D%90%AB%F0%9D%90%A8%F0%9D%90%A3%F0%9D%90%9E%F0%9D%90%9C%F0%9D%90%AD-%F0%9D%90%A2-activity-7515773754510077953-Zt_f
+https://www.linkedin.com/posts/tylerjensen_everyone-has-been-pushing-data-before-ai-activity-7515566045362036736-yD2q
+https://www.linkedin.com/posts/nicolasbeltran7_if-your-reports-dont-tie-back-to-the-source-activity-7515764430014603265-BXDN
+https://www.linkedin.com/posts/kelly-monahan-ph-d-18879413_here-is-a-practical-ai-prompting-tip-that-activity-7515444215808409601-NVnM
+https://www.linkedin.com/posts/somepeoplecallmetim_whats-stopping-you-from-building-your-first-activity-7515095186180304896-QeGJ
+https://www.linkedin.com/posts/brianjagger_as-always-great-advice-from-andrew-blumson-activity-7515063110689521664-XGOh
+https://www.linkedin.com/posts/skondisetty_the-winners-of-the-ai-race-wont-be-the-organizations-activity-7514769347249336321-j3Od
