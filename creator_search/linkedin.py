@@ -112,6 +112,7 @@ class RelatedPost:
     activity_id: str | None
     author: Author
     text: str = ""
+    reactions: int = 0
 
     @property
     def published(self) -> datetime | None:
@@ -201,8 +202,10 @@ def parse_related(page: str) -> list[RelatedPost]:
         if not author.slug:
             author.slug = slug_from_post_url(url) or ""
         body = re.search(r'attributed-text-segment-list__content[^>]*>(.*?)</p>', chunk, re.S)
+        reactions = re.search(r'data-num-reactions="(\d+)"', chunk)
         out.append(RelatedPost(url=url, activity_id=aid_m.group(1) if aid_m else activity_id_from_url(url),
-                               author=author, text=_visible_text(body.group(1)) if body else ""))
+                               author=author, text=_visible_text(body.group(1)) if body else "",
+                               reactions=int(reactions.group(1)) if reactions else 0))
     return out
 
 

@@ -31,7 +31,8 @@ def page_html(author_url="https://www.linkedin.com/in/jane-doe", followers=12345
   <a aria-label="Post by John Smith" href="https://www.linkedin.com/posts/johnsmith_leadership-activity-7516240991830376448-XUsn"></a>
   <article class="main-feed-activity-card related-posts__crosslink" data-activity-urn="urn:li:activity:7516240991830376448">
   <a href="https://www.linkedin.com/in/johnsmith?trk=public_post_feed-actor-name"> John Smith </a>
-  <p class="attributed-text-segment-list__content">Great leaders listen first.</p></article></div></li>
+  <p class="attributed-text-segment-list__content">Great leaders listen first.</p>
+  <span data-num-reactions="57"></span></article></div></li>
 <li class="mb-1.5"><div class="link-overlay relative">
   <a aria-label="Post by Acme" href="https://www.linkedin.com/posts/acme_news-activity-7518362934549479424-cwdt"></a>
   <article class="main-feed-activity-card related-posts__crosslink" data-activity-urn="urn:li:activity:7518362934549479424">
@@ -64,6 +65,7 @@ def test_parse_related_posts_keep_country_and_kind():
     assert rel[0].published.date().isoformat() == "2026-10-14"
     assert rel[0].text == "Great leaders listen first."
     assert rel[1].author.followers == 34000
+    assert (rel[0].reactions, rel[1].reactions) == (57, 0)
 
 
 @pytest.mark.parametrize("url,followers,expected", [

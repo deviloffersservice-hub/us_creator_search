@@ -33,7 +33,8 @@ log = logging.getLogger("bulk_add")
 
 # Crawl order: newest posts first (a page's related posts are usually from around the same
 # time, so staying near the present keeps finding active people), and within the same age
-# band: unknown US people > seeds > US people already known > non-US / company pages.
+# band: unknown US people > seeds > US people already known > non-US / company pages, and
+# then by reactions (bigger audiences get more reactions, so 5K+ accounts surface sooner).
 T_CANDIDATE, T_SEED, T_KNOWN, T_OTHER = 0, 1, 2, 3
 AGE_BANDS_DAYS = (config.MAX_POST_AGE_DAYS, 45, 120)
 
@@ -52,18 +53,18 @@ class Frontier:
         days = (self.now - activity_time(aid)).days
         return next((i for i, d in enumerate(AGE_BANDS_DAYS) if days <= d), len(AGE_BANDS_DAYS))
 
-    def push(self, url: str, tier: int):
+    def push(self, url: str, tier: int, reactions: int = 0):
         url = canonical_post_url(url)
         if url in self.visited or self.tier.get(url, 99) <= tier:
             return
         self.tier[url] = tier
         aid = activity_id_from_url(url)
         self._n += 1
-        heapq.heappush(self.heap, (self._age_band(aid), tier, -int(aid or 0), self._n, url))
+        heapq.heappush(self.heap, (self._age_band(aid), tier, -reactions, -int(aid or 0), self._n, url))
 
     def pop(self) -> str | None:
         while self.heap:
-            _, tier, _, _, url = heapq.heappop(self.heap)
+            _, tier, *_, url = heapq.heappop(self.heap)
             if url in self.visited or self.tier.get(url) != tier:
                 continue  # already fetched, or superseded by a better-tier push
             self.visited.add(url)
@@ -76,7 +77,7 @@ class Frontier:
 
     def leftovers(self, limit: int) -> list[tuple[str, int]]:
         out = []
-        for _, tier, _, _, url in sorted(self.heap):
+        for _, tier, *_, url in sorted(self.heap):
             if self.tier.get(url) == tier:
                 out.append((url, tier))
                 if len(out) >= limit:
@@ -173,7 +174,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
             saw(ra.slug, r.published, r.url)
             if ra.is_person and ra.is_us:
                 known = ra.slug in known_slugs or ra.slug in decided
-                frontier.push(r.url, T_KNOWN if known else T_CANDIDATE)
+                frontier.push(r.url, T_KNOWN if known else T_CANDIDATE, r.reactions)
             else:
                 frontier.push(r.url, T_OTHER)
 
@@ -184,6 +185,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
             continue
         if rules.profile_failures(page):
             continue
+        if a.slug not in newest:
+            continue  # no post date at all
         last_seen, last_url = newest[a.slug]
         if not rules.recent(last_seen, now, days=config.MAX_SEEN_POST_AGE_DAYS):
             continue

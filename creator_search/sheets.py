@@ -78,6 +78,9 @@ class Tab:
         missing = [h for h in headers if h not in current]
         if missing:
             current = current + missing
+            col_count = getattr(ws, "col_count", len(current))
+            if col_count < len(current):
+                ws.add_cols(len(current) - col_count)
             ws.update(values=[current], range_name="A1", value_input_option="RAW")
         self.headers = current
         self._pending: list[dict] = []
