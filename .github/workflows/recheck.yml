@@ -2,7 +2,7 @@ name: Daily recheck of qualified creators
 
 on:
   schedule:
-    - cron: "30 0 * * *"   # 06:00 IST, before the first bulk run
+    - cron: "30 0 * * *"   # 06:00 IST (00:30 UTC), before the first bulk run
   workflow_dispatch:
 
 concurrency:
