@@ -2,10 +2,8 @@ name: Creator pipeline (bulk add + verify)
 
 on:
   schedule:
-    # GitHub cron is UTC; IST = UTC+5:30.
-    - cron: "30 2 * * *"   # 08:00 IST
-    - cron: "30 7 * * *"   # 13:00 IST
-    - cron: "30 12 * * *"  # 18:00 IST
+    # Every hour, at :17 past (GitHub delays jobs scheduled exactly on the hour).
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       target:
