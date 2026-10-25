@@ -245,8 +245,10 @@ class Fetcher:
             if r.status_code == 404:
                 self.consecutive_blocks = 0
                 raise NotFound(url)
-            blocked = (r.status_code in (429, 999) or "/authwall" in final
-                       or "/signup" in final or "/login" in final or "/uas/" in final)
+            if r.status_code == 200 and re.search(r"/(signup|login|uas)/", final):
+                # This one post wants a login (e.g. restricted visibility). Not an IP block.
+                raise NotFound(f"{url} redirects to login")
+            blocked = r.status_code in (429, 999) or "/authwall" in final
             if r.status_code == 200 and not blocked:
                 self.consecutive_blocks = 0
                 return r.text

@@ -31,12 +31,19 @@ from creator_search.sheets import PROFILE_RE, Sheet, fmt_date, fmt_time, normali
 
 log = logging.getLogger("bulk_add")
 
-# Crawl order: newest posts first (a page's related posts are usually from around the same
-# time, so staying near the present keeps finding active people), and within the same age
-# band: unknown US people > seeds > US people already known > non-US / company pages, and
-# then by reactions (bigger audiences get more reactions, so 5K+ accounts surface sooner).
+# Crawl order. Pages by US people we haven't seen are where new creators come from, so they
+# go first; staying near the present matters too, because a page's related posts are usually
+# from around the same time, so old pages lead to inactive people. Non-US / company pages are
+# only used to escape a cluster that has run dry. Ties go to posts with more reactions
+# (bigger audiences get more reactions, so 5K+ accounts surface sooner), then newest.
 T_CANDIDATE, T_SEED, T_KNOWN, T_OTHER = 0, 1, 2, 3
-AGE_BANDS_DAYS = (config.MAX_POST_AGE_DAYS, 45, 120)
+AGE_BANDS_DAYS = (config.MAX_POST_AGE_DAYS, 45, 120)  # band 0, 1, 2; older = band 3
+CRAWL_CLASS = {  # (tier, age band) -> crawl class, lower first
+    (T_CANDIDATE, 0): 0, (T_CANDIDATE, 1): 1,
+    (T_SEED, 0): 2, (T_KNOWN, 0): 2, (T_SEED, 1): 3, (T_KNOWN, 1): 3,
+    (T_CANDIDATE, 2): 4, (T_OTHER, 0): 5,
+}
+LAST_CLASS = 6
 
 
 class Frontier:
@@ -60,7 +67,8 @@ class Frontier:
         self.tier[url] = tier
         aid = activity_id_from_url(url)
         self._n += 1
-        heapq.heappush(self.heap, (self._age_band(aid), tier, -reactions, -int(aid or 0), self._n, url))
+        cls = CRAWL_CLASS.get((tier, self._age_band(aid)), LAST_CLASS)
+        heapq.heappush(self.heap, (cls, tier, -reactions, -int(aid or 0), self._n, url))
 
     def pop(self) -> str | None:
         while self.heap:
