@@ -11,6 +11,10 @@ on:
       target:
         description: "How many creators to add to the Bulk tab"
         default: "100"
+      dry_run:
+        description: "Dry run: crawl and print results, don't touch the sheet"
+        type: boolean
+        default: false
 
 # Never let two runs write to the sheet at the same time.
 concurrency:
@@ -32,10 +36,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
+      - name: Dry run (no sheet)
+        if: ${{ inputs.dry_run }}
+        run: python bulk_add.py --no-sheet --target "${{ inputs.target || '10' }}" --max-pages 60
+
       - name: Bulk add creators
+        if: ${{ !inputs.dry_run }}
         run: python bulk_add.py --target "${{ inputs.target || '100' }}"
 
       - name: Verify creators
         # Runs even if bulk add hit a problem, so already-added rows still get verified.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && !inputs.dry_run }}
         run: python verify.py

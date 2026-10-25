@@ -166,6 +166,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
             blocked = True
             break
         pages += 1
+        if pages % 25 == 0:
+            log.info("progress: %d pages, %d fresh + %d older found, %d posts queued",
+                     pages, len(fresh), len(older), len(frontier))
         a = page.author
         saw(a.slug, page.published, page.url)
 
