@@ -53,8 +53,9 @@ def rank(kind: int, fresh: bool, too_old: bool = False) -> int | None:
 
 
 class Lane:
-    def __init__(self, niche: str | None, budget: float, now: datetime):
+    def __init__(self, niche: str | None, budget: float, now: datetime, visited: set[str] | None = None):
         self.niche = niche
+        self.visited = visited if visited is not None else set()  # shared by all lanes in a run
         self.budget = budget
         self.now = now
         self.used = 0
@@ -72,6 +73,8 @@ class Lane:
              likely: bool = False) -> bool:
         """likely: the related-post card already showed a follower count in range, so fetch it first."""
         url = canonical_post_url(url)
+        if url in self.visited:
+            return False
         aid = int(activity_id_from_url(url) or 0)
         posted = activity_time(aid) if aid else None
         r = rank(kind, rules.recent(posted, self.now),
@@ -226,8 +229,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     lane_niches = niches.rotation(config.NICHES_PER_RUN, slot=slot)
     log.info("niche lanes this run: %s", ", ".join(lane_niches))
     lane_budget = max_pages * config.LANE_SHARE / max(len(lane_niches), 1)
-    lanes = {n: Lane(n, lane_budget, now) for n in lane_niches}
-    general = Lane(None, float("inf"), now)
+    visited: set[str] = set()
+    lanes = {n: Lane(n, lane_budget, now, visited) for n in lane_niches}
+    general = Lane(None, float("inf"), now, visited)
     fetcher = Fetcher()
 
     # Seeds: fresh niche posts from search first, then topic pages (older ones only if a lane is short).
@@ -249,6 +253,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             search_posts += lanes[niche].push(url, K_SEED)
 
     for _ in range(config.SEARCH_UPFRONT):
+        if searcher and searcher.cooldown:
+            break  # cooling down: leave the rest for the spaced-out turns during the crawl
         search_turn()
     for niche, lane in lanes.items():
         topics = list(niches.NICHES[niche]["topics"])
@@ -282,7 +288,6 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     decided: set[str] = set()
     newest: dict[str, tuple[datetime, str]] = {}
     texts: dict[str, list[str]] = defaultdict(list)  # every post text seen per person, for niche tagging
-    visited: set[str] = set()
     via: dict[str, str] = {}
     pages = skipped_known = candidate_cards = company_pages = company_posts = 0
     companies_ok = True
@@ -354,8 +359,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             break
         lane, url, kind, depth, reactions = nxt
         visited.add(url)
-        if kind == K_CANDIDATE and slug_from_post_url(url) in decided:
-            continue  # another post of someone already judged this run; the queue has plenty to crawl
+        if kind == K_CANDIDATE and ((pslug := slug_from_post_url(url)) in decided or pslug in known_slugs
+                                    or st.skip(pslug or "")):
+            continue  # someone already judged (this run or earlier); the queue has plenty to crawl
         try:
             page = fetcher.post(url)
         except NotFound:
@@ -411,6 +417,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             continue
         if a.slug in decided:
             outcome("seen this run")
+            continue
+        if a.followers is None and a.is_us:
+            outcome("no follower count")  # unreadable page: another post of theirs may still work
             continue
         decided.add(a.slug)
         if a.slug in card_followers and a.followers:

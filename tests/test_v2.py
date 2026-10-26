@@ -216,3 +216,24 @@ def test_searcher_spreads_blame_and_cools_down(monkeypatch):
     assert s.search("nothing this week") == []  # nobody answered: not blamed on the engines yet
     assert s.fails["auto"] == 1 and s.cooldown == 1
     assert not s.ready() and s.ready()  # skips one turn, then searches again
+
+
+def test_related_card_follower_count_ignores_post_text():
+    from creator_search.linkedin import parse_related
+    def card(header, body):
+        return ('<li class="mb-1.5"><a href="https://www.linkedin.com/in/jane?trk=x" aria-label="Post by Jane">'
+                f'Jane</a>{header}<a href="https://www.linkedin.com/posts/jane_x-activity-7518390684312317952-ab">p</a>'
+                '<div data-activity-urn="urn:li:activity:7518390684312317952" data-num-reactions="12"></div>'
+                f'<p class="attributed-text-segment-list__content">{body}</p></li>')
+    page = ('<section class="related-posts">' + card("", "How I went from 300 followers to 40,000 followers")
+            + card("<span>12,345 followers</span>", "hello") + "</section>")
+    first, second = parse_related(page)
+    assert first.author.followers is None
+    assert second.author.followers == 12345
+
+
+def test_visited_posts_are_not_queued_again():
+    visited = {_post("deleted-post", 1)}
+    lane = discover.Lane("Legal", 100, NOW, visited)
+    assert not lane.push(_post("deleted-post", 1), discover.K_CANDIDATE)
+    assert not lane.has_work()

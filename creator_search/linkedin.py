@@ -195,7 +195,10 @@ def parse_related(page: str) -> list[RelatedPost]:
         aid_m = re.search(r'data-activity-urn="urn:li:activity:(\d+)"', chunk)
         actor = ACTOR_RE.search(chunk)
         name_m = re.search(r'aria-label="Post by ([^"]+)"', chunk)
-        followers_m = FOLLOWERS_RE.search(_visible_text(chunk[:6000]))
+        # Only the card header (before the post text), so "went from 300 followers to..." in the
+        # post itself is never read as the author's follower count.
+        body_at = chunk.find("attributed-text-segment-list")
+        followers_m = FOLLOWERS_RE.search(_visible_text(chunk[: body_at if body_at > 0 else 6000]))
         author = _author_from_url(actor.group(0) if actor else "",
                                   htmllib.unescape(name_m.group(1)) if name_m else "",
                                   to_int(followers_m.group(1)) if followers_m else None)

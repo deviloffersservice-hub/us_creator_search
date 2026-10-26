@@ -77,7 +77,7 @@ jobs:
         run: python -m v2.discover --no-sheet --no-save --target 20 --max-pages 120
 
       - name: Discover
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !cancelled() && !inputs.dry_run }}
         run: >
           python -m v2.discover
           ${{ github.event_name == 'schedule' && '--min-gap-minutes 30' || '' }}
