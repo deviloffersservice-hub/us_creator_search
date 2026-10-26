@@ -86,6 +86,12 @@ jobs:
         if: ${{ !cancelled() && !inputs.dry_run }}
         run: python -m v2.recheck
 
+      - name: Run Log and alerts
+        id: runlog
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        continue-on-error: true  # memory must still be saved; the alert is re-raised below
+        run: python -m v2.runlog
+
       - name: Save v2 memory
         if: ${{ always() && !inputs.dry_run }}
         uses: actions/cache/save@v5
@@ -93,6 +99,8 @@ jobs:
           path: .v2state
           key: v2-state-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Run Log and alerts
-        if: ${{ !cancelled() && !inputs.dry_run }}
-        run: python -m v2.runlog
+      - name: Alert (fails the run so GitHub emails you)
+        if: ${{ steps.runlog.outcome == 'failure' }}
+        run: |
+          echo "::error::v2 was blocked by LinkedIn or found nobody for several runs. See the Run Log tab."
+          exit 1
