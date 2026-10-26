@@ -27,7 +27,7 @@ import random
 import sys
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from creator_search import config, niches, rules
@@ -45,8 +45,8 @@ K_CANDIDATE, K_SEED, K_KNOWN, K_OTHER = 0, 1, 2, 3
 class Frontier:
     """Which post page to fetch next.
 
-    Focus-niche pages always come first; everything else only once those run out. Within
-    each of those two groups, two lanes are taken in turn:
+    Four queues are taken in turn (focus fresh, other fresh, focus older, other older), so
+    focus niches get half the pages without starving everything else. "Fresh" and "older":
       fresh lane:     posts from the last 14 days (a page's related posts are usually from
                       around the same time, so this keeps the crawl anchored to the present);
       candidate lane: older posts by US people we haven't seen yet (more creators per page;
@@ -95,10 +95,13 @@ class Frontier:
 
     def pop(self, capped_niches: frozenset = frozenset()) -> str | None:
         """Candidates from niches that already hit this run's cap are demoted to 'known'."""
-        self._turn += 1
         f_fresh, f_older, r_fresh, r_older = self.heaps
-        lanes = [f_fresh, f_older, r_fresh, r_older] if self._turn % 2 else [f_older, f_fresh, r_older, r_fresh]
-        for heap in lanes:
+        # Whose turn it is, then fallbacks: same group's other lane first, then the other group.
+        orders = [[f_fresh, f_older, r_fresh, r_older], [r_fresh, r_older, f_fresh, f_older],
+                  [f_older, f_fresh, r_older, r_fresh], [r_older, r_fresh, f_older, f_fresh]]
+        order = orders[self._turn % len(orders)]
+        self._turn += 1
+        for heap in order:
             while heap:
                 tier, neg_reactions, neg_aid, _, url = heapq.heappop(heap)
                 if url in self.visited or self.entry.get(url, (None,))[0] != tier:
@@ -142,7 +145,7 @@ def load_seed_file() -> list[str]:
             if line.strip() and not line.startswith("#")]
 
 
-def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
+def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_minutes: int = 0) -> int:
     sheet = Sheet() if use_sheet else None
     known_slugs: set[str] = set()
     known_names: set[str] = set()
@@ -154,6 +157,13 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool) -> int:
 
     if sheet:
         bulk, qual = sheet.bulk(), sheet.qualified()
+        if min_gap_minutes:
+            last = max((t for r in bulk.rows()[-300:] if (t := parse_time(r.get("Added At (IST)", "")))),
+                       default=None)
+            if last and now - last < timedelta(minutes=min_gap_minutes):
+                log.info("last bulk add was at %s IST, under %d minutes ago; skipping this run",
+                         fmt_time(last), min_gap_minutes)
+                return 0
         known_slugs, known_names, sheet_posts = sheet.known_creators()
         for row in qual.rows():
             niche_counts[row.get("Niche", "")] += 1
@@ -320,9 +330,12 @@ def main():
     ap.add_argument("--max-pages", type=int, default=config.MAX_PAGES_PER_BULK_RUN)
     ap.add_argument("--no-sheet", action="store_true", help="dry run: print results, don't touch the sheet")
     ap.add_argument("--no-search", action="store_true", help="skip best-effort web search seeding")
+    ap.add_argument("--min-gap-minutes", type=int, default=0,
+                    help="skip the run if creators were added less than this many minutes ago "
+                         "(the hourly schedule has a backup trigger; this stops it doubling up)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    sys.exit(run(args.target, args.max_pages, not args.no_sheet, not args.no_search))
+    sys.exit(run(args.target, args.max_pages, not args.no_sheet, not args.no_search, args.min_gap_minutes))
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ WATCH_DAYS = _int("WATCH_DAYS", 14)
 WATCH_RECHECK_HOURS = _int("WATCH_RECHECK_HOURS", 4)
 WATCH_MAX_PER_RUN = _int("WATCH_MAX_PER_RUN", 200)
 # Bulk skips people whose newest post we can find is older than this (clearly dormant).
-MAX_SEEN_POST_AGE_DAYS = _int("MAX_SEEN_POST_AGE_DAYS", 90)
+MAX_SEEN_POST_AGE_DAYS = _int("MAX_SEEN_POST_AGE_DAYS", 60)
 # Recheck visits the least recently checked creators first, up to this many per day.
 RECHECK_MAX_PER_RUN = _int("RECHECK_MAX_PER_RUN", 2000)
 

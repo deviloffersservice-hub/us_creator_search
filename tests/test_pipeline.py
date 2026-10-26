@@ -136,7 +136,7 @@ def test_frontier_alternates_lanes_and_prefers_new_us_people():
     f.push(_post("old-company", 60), K_OTHER)  # dropped: old and not a US person
     assert len(f) == 4
     order = [slug_from_post_url(f.pop()) for _ in range(4)]
-    assert order == ["fresh-new", "old-new", "fresh-company", "old-known"]
+    assert order == ["fresh-new", "fresh-company", "old-new", "old-known"]
     assert f.pop() is None
 
 
@@ -147,11 +147,12 @@ def test_frontier_prefers_focus_niches_and_demotes_capped_ones():
     f.push(_post("ai-person", 2), K_CANDIDATE, reactions=500, niche="AI & Machine Learning")
     f.push(_post("hr-seed", 3), K_SEED, niche="HR & People Ops")
     f.push(_post("hr-person", 4), K_CANDIDATE, reactions=1, niche="HR & People Ops")
-    assert slug_from_post_url(f.pop()) == "hr-person"
+    assert slug_from_post_url(f.pop()) == "hr-person"  # focus niche's turn
+    assert slug_from_post_url(f.pop()) == "ai-person"  # then everything else gets a turn
     assert slug_from_post_url(f.pop()) == "hr-seed"
     f.push(_post("ai-person-2", 1), K_CANDIDATE, niche="AI & Machine Learning")
     f.push(_post("sales-seed", 5), K_SEED, niche="Sales")
-    # AI is capped this run: its candidates drop below other seeds in the same (fresh) lane.
+    # AI is capped this run: its candidates drop below other seeds.
     assert slug_from_post_url(f.pop(frozenset({"AI & Machine Learning"}))) == "sales-seed"
 
 
