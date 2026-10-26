@@ -28,7 +28,7 @@ US_SUBDOMAIN = "www"
 
 # Run sizes.
 BULK_TARGET = _int("BULK_TARGET", 100)
-MAX_PAGES_PER_BULK_RUN = _int("MAX_PAGES_PER_BULK_RUN", 700)
+MAX_PAGES_PER_BULK_RUN = _int("MAX_PAGES_PER_BULK_RUN", 1100)
 # Niche lanes: each run takes the next NICHES_PER_RUN niches in rotation and splits
 # NICHE_LANE_SHARE of the page budget equally between them; the rest goes to general discovery.
 NICHES_PER_RUN = _int("NICHES_PER_RUN", 6)
