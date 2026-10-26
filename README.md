@@ -7,9 +7,9 @@ It's free: no LinkedIn login, no paid APIs, and it runs on GitHub Actions.
 
 | Script | When (IST) | What it does |
 |---|---|---|
-| `bulk_add.py` | every hour (:17 past) | Adds 100 new creators to the **Bulk** tab as `Pending` |
+| `bulk_add.py` | every hour (:17 past, backup slot at :47) | Adds 100 new creators to the **Bulk** tab as `Pending` |
 | `verify.py` | right after each bulk run | Re-checks every `Pending`/`Watching` row → `Qualified` / `Rejected` / `Watching`; copies qualified ones to **Qualified** |
-| `recheck.py` | 06:00 daily | Re-checks up to 2,000 creators in **Qualified** (least recently checked first) → `Active` / `Inactive` / `Out of range` |
+| `recheck.py` | 06:00 and 18:00 IST daily | Re-checks up to 2,000 creators in **Qualified** (least recently checked first) → `Active` / `Inactive` / `Out of range` |
 
 No duplicates: before adding anyone, the script reads **every tab** in the spreadsheet,
 including the GPT-made tabs. It skips anyone whose LinkedIn profile link is already
@@ -124,7 +124,7 @@ Measured on a test run: one bulk run opens about 375–500 post pages and finds 
 US creators with 5K–100K followers in about 10 minutes (median about 10K followers). On that run:
 
 - About 10–20% had a post from the last 14 days, so they're `Qualified` straight away.
-- Most others had a post visible from the last 2–6 weeks. They start as `Watching`, and the
+- The rest had a post visible from the last 15–30 days (anyone older isn't added). They start as `Watching`, and the
   prolific ones (many have 1,000+ posts in total) move to `Qualified` on a later run once
   their post count goes up.
 - Anyone with no new post after 14 days of checks is `Rejected` with the reason given.
