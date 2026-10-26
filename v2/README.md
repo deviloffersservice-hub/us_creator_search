@@ -28,6 +28,12 @@ v2 reads the main sheet only to avoid adding people who are already there. It ne
 - **A chain that survives crashes.** Each run queues the next one at its *start*.
 - **A Run Log tab** gets one row per run. The run **fails on purpose, so GitHub emails you**, if
   LinkedIn blocks it or 3 runs in a row find nobody.
+- **Search tries ddgs "auto" first.** It answers far more often than any single engine. Each
+  GitHub machine still gets only about 10–15 answered searches per run.
+- **Related-post cards are used directly.** About 30% of cards show the author's follower count.
+  People clearly under 4K or over 120K are rejected from the card, without fetching their post.
+- **A per-run rejection breakdown in the logs.** It says why each fetched page's author didn't
+  qualify (small / big / non-US / stale / already known), so changes can target the real loss.
 - **Gentler on LinkedIn.** v2 stops after 3 blocked responses in a row (v1 waits for 5), and it
   works on different niches than v1 in the same hour.
 
@@ -36,3 +42,8 @@ v2 reads the main sheet only to avoid adding people who are already there. It ne
 - **Start or restart:** go to **Actions → Experiment v2 → Run workflow** and leave "chained" ticked.
 - **Stop:** disable the "Experiment v2" workflow in the Actions tab. v1 keeps running.
 - **Compare:** v2's Run Log tab shows per-run numbers. For v1, read its job logs.
+
+## Tried and dropped
+
+- **Company pages** (`/company/<slug>/`) as a source of fresh posts. LinkedIn answers 999 on GitHub's
+  machines from the first request. v2 tries once per run and switches them off on refusal.
