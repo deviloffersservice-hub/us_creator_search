@@ -1,4 +1,4 @@
-"""v2 discovery: find new US LinkedIn creators and append them to the v2 sheet's Bulk tab.
+"""v2 discovery: find new US LinkedIn creators and append them to the Bulk tab.
 
 Same idea as v1's bulk_add.py (logged-out public post pages, niche lanes, related posts), plus:
   * memory of people already checked (too small, too big, not US, no recent post) so their
@@ -7,7 +7,7 @@ Same idea as v1's bulk_add.py (logged-out public post pages, niche lanes, relate
   * lanes that don't starve: more search phrases per niche, older topic posts as a fallback
   * niche tagged from every post seen from that person, plus a "Found Via" column
   * page data kept for an hour so verify needn't download the same pages again
-It writes only to the v2 spreadsheet; the main sheet is read to avoid duplicates.
+It writes to V2_SHEET_ID (the main sheet); the old experiment sheet is also read to avoid duplicates.
 """
 from __future__ import annotations
 
@@ -165,9 +165,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     bulk = qual = None
 
     if use_sheet:
-        v2 = Sheet(config.V2_SHEET_ID)
-        bulk = v2.tab(config.BULK_TAB, V2_BULK_HEADERS)
-        qual = v2.tab(config.QUALIFIED_TAB, V2_QUALIFIED_HEADERS)
+        out = Sheet(config.V2_SHEET_ID)
+        bulk = out.tab(config.BULK_TAB, V2_BULK_HEADERS)
+        qual = out.tab(config.QUALIFIED_TAB, V2_QUALIFIED_HEADERS)
         if min_gap_minutes:
             last = max((t for r in bulk.rows()[-300:] if (t := parse_time(r.get("Added At (IST)", "")))),
                        default=None)
@@ -175,14 +175,16 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                 log.info("v2 added creators at %s IST, under %d minutes ago; skipping", fmt_time(last),
                          min_gap_minutes)
                 return 0
-        for sheet in (Sheet(config.MAIN_SHEET_ID), v2):  # main sheet is only read
+        for sheet_id in dict.fromkeys([config.V2_SHEET_ID, config.MAIN_SHEET_ID, config.EXPERIMENT_SHEET_ID]):
+            sheet = out if sheet_id == config.V2_SHEET_ID else Sheet(sheet_id)
             slugs, names, posts = sheet.known_creators()
             known_slugs |= slugs
             known_names |= names
-            if sheet is v2:
-                # Only v2's own posts as seeds: the main sheet's posts lead into the clusters v1 has
-                # already harvested, where nearly every related person is already known.
+            if sheet_id == config.EXPERIMENT_SHEET_ID:
                 sheet_posts += posts
+        # Only posts v2 itself found are seeds (rows with "Found Via"): v1's posts lead into the
+        # clusters it has already harvested, where nearly every related person is already known.
+        sheet_posts += [r["Source Post URL"] for r in bulk.rows() if r.get("Found Via") and r.get("Source Post URL")]
         for row in qual.rows():
             m = PROFILE_RE.search(row.get("Profile URL", ""))
             if m:

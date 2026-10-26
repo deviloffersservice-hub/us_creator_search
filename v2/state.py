@@ -28,6 +28,7 @@ class State:
         self.runs: list[dict] = data.get("runs", [])
         self.companies: dict[str, list[str]] = data.get("companies", {})  # niche ("" = general) -> slugs to visit
         self.companies_done: dict[str, int] = data.get("companies_done", {})  # slug -> when its page was read
+        self.migrated: str = data.get("migrated", "")  # "<from sheet>-><to sheet>" once v2.migrate has copied rows
         self.current: dict = {}  # metrics for this run, filled in by each step
 
     @property
@@ -56,7 +57,7 @@ class State:
             json.dump({"seen": self.seen, "queue": self.queue[: config.QUEUE_MAX], "snapshots": self.snapshots,
                        "runs": self.runs[-200:], "current": self.current,
                        "companies": {k: v[:300] for k, v in self.companies.items()},
-                       "companies_done": self.companies_done}, f, separators=(",", ":"))
+                       "companies_done": self.companies_done, "migrated": self.migrated}, f, separators=(",", ":"))
         tmp.replace(self.path)
 
     # --- people already checked -------------------------------------------------------------

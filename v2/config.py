@@ -4,18 +4,20 @@ from pathlib import Path
 
 from creator_search.config import _float, _int
 
-# Output goes ONLY to the v2 spreadsheet. The main sheet is read (never written) to avoid duplicates.
-V2_SHEET_ID = os.environ.get("V2_SHEET_ID", "1zHA9Rm3tniFflGhO8w-1ZGKsXaFBiFVktasFvI-TYBk")
+# v2 is the main pipeline (since 2026-10-26) and writes to the main sheet. The experiment sheet it
+# used before is still read so nobody found there is added twice; v2.migrate copies its creators over.
 MAIN_SHEET_ID = os.environ.get("MAIN_SHEET_ID", "1GdZxogrK0wYMXcWGC3tbelUrEZE39foweCHNBbK-6-w")
+EXPERIMENT_SHEET_ID = os.environ.get("EXPERIMENT_SHEET_ID", "1zHA9Rm3tniFflGhO8w-1ZGKsXaFBiFVktasFvI-TYBk")
+V2_SHEET_ID = os.environ.get("V2_SHEET_ID", MAIN_SHEET_ID)  # where v2 writes
 BULK_TAB, QUALIFIED_TAB, RUN_LOG_TAB = "Bulk", "Qualified", "Run Log"
 
 STATE_DIR = Path(os.environ.get("V2_STATE_DIR", ".v2state"))
 
-# Discovery budget: smaller than v1 (1,100) so the two together stay gentle on LinkedIn.
+# Discovery budget per hourly run: about 25 minutes of fetching, leaving room for verify and recheck.
 TARGET = _int("V2_TARGET", 100)
-MAX_PAGES = _int("V2_MAX_PAGES", 600)
+MAX_PAGES = _int("V2_MAX_PAGES", 1000)
 NICHES_PER_RUN = _int("V2_NICHES_PER_RUN", 6)
-NICHE_SLOT_OFFSET = _int("V2_NICHE_SLOT_OFFSET", 3)  # work on different niches than v1 in the same hour
+NICHE_SLOT_OFFSET = _int("V2_NICHE_SLOT_OFFSET", 3)  # shifts which niches get lanes in a given hour
 LANE_SHARE = _float("V2_LANE_SHARE", 0.7)
 LANE_DEPTH = _int("V2_LANE_DEPTH", 3)
 LANE_MIN_SEEDS = _int("V2_LANE_MIN_SEEDS", 20)  # below this, also use older topic-page posts

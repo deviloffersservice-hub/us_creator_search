@@ -162,3 +162,12 @@ def test_card_status_only_rejects_clear_misses():
     assert discover.card_status(4500) is None  # close to 5K: fetch the post and use its exact count
     assert discover.card_status(110000) is None
     assert discover.card_status(200000) == "big"
+
+
+def test_migrate_copies_only_new_profiles():
+    from v2.migrate import new_rows
+    source = [{"_row": 2, "Name": "A", "Profile URL": "https://www.linkedin.com/in/a"},
+              {"_row": 3, "Name": "B", "Profile URL": "https://www.linkedin.com/in/b/"},
+              {"_row": 4, "Name": "B again", "Profile URL": "https://www.linkedin.com/in/b"}]
+    target = [{"_row": 2, "Name": "A", "Profile URL": "https://linkedin.com/in/a"}]
+    assert new_rows(source, target) == [{"Name": "B", "Profile URL": "https://www.linkedin.com/in/b/"}]

@@ -1,4 +1,4 @@
-"""v2 recheck: v1's recheck logic, pointed explicitly at the v2 sheet's Qualified tab."""
+"""v2 recheck: v1's recheck logic, pointed explicitly at V2_SHEET_ID's Qualified tab."""
 from __future__ import annotations
 
 import argparse
@@ -27,7 +27,7 @@ def main():
     ap.add_argument("--limit", type=int, default=config.RECHECK_PER_RUN)
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    v1_recheck.Sheet = _V2Sheet  # never the main sheet
+    v1_recheck.Sheet = _V2Sheet
     started = time.time()
     code = v1_recheck.run(args.limit)
     st = State.load()

@@ -5,18 +5,23 @@ Finds US-based LinkedIn creators with **5,000–100,000 followers** who have **p
 [US LinkedIn Tech Creators](https://docs.google.com/spreadsheets/d/1GdZxogrK0wYMXcWGC3tbelUrEZE39foweCHNBbK-6-w/edit).
 It's free: no LinkedIn login, no paid APIs, and it runs on GitHub Actions.
 
-| Script | When (IST) | What it does |
-|---|---|---|
-| `bulk_add.py` | every hour | Adds 100 new creators to the **Bulk** tab as `Pending` |
-| `verify.py` | right after each bulk run | Re-checks every `Pending`/`Watching` row → `Qualified` / `Rejected` / `Watching`; copies qualified ones to **Qualified** |
-| `recheck.py` | every hour (150 creators) + 06:00 / 18:00 IST (up to 2,000) | Re-checks the least recently checked creators in **Qualified** → `Active` / `Inactive` / `Out of range` |
+> **Since 2026-10-26 the hourly pipeline is v2** (`v2/`, workflow **Creator pipeline v2**). In
+> side-by-side runs it found about 8x more creators per page than the original scripts below.
+> [v2/README.md](v2/README.md) explains what it does differently. The original v1 workflow is kept
+> for manual runs only. The twice-daily `recheck.yml` still runs.
+
+| Step (every hour) | What it does |
+|---|---|
+| `python -m v2.discover` | Adds up to 100 new creators to the **Bulk** tab as `Pending`, from up to 1,000 public post pages |
+| `python -m v2.verify` | Checks every `Pending` row and due `Watching` row → `Qualified` / `Rejected` / `Watching`; copies qualified ones to **Qualified** |
+| `python -m v2.recheck` | Re-checks the 150 least recently checked creators in **Qualified** → `Active` / `Inactive` / `Out of range` |
+| `python -m v2.runlog` | Adds one row per run to the **Run Log** tab, and fails the run (so GitHub emails you) if LinkedIn blocks it or 3 runs in a row find nobody |
 
 **How "every hour" works:** GitHub's own scheduler drops most hourly runs, so the pipeline runs as a
-**chain**. Each run does its work, waits until an hour has passed since it started, then queues the
-next run. The `:17` / `:47` cron entries are only a backup that restarts the chain if it ever breaks.
-Scheduled and chained runs skip the bulk add if creators were added in the last 30 minutes. To
-restart the chain by hand, go to **Actions → Creator pipeline → Run workflow** (leave "chained" ticked).
-To stop it, disable the workflow in the Actions tab.
+**chain**. Each run first queues the next one, which waits until an hour after this run started. A
+crash therefore can't break the chain. A cron entry every 3 hours restarts the chain if it ever
+stops. To restart it by hand, go to **Actions → Creator pipeline v2 → Run workflow** (leave
+"chained" ticked). To stop it, disable that workflow in the Actions tab.
 
 No duplicates: before adding anyone, the script reads **every tab** in the spreadsheet,
 including the GPT-made tabs. It skips anyone whose LinkedIn profile link is already

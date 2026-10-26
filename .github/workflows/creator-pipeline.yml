@@ -1,14 +1,10 @@
-name: Creator pipeline (bulk add + verify)
+name: v1 pipeline (retired, manual only)
 
-# Runs every hour as a chain: each run does its work, waits until an hour has passed since it
-# started, then queues the next run. GitHub's own scheduler drops most hourly runs, so the cron
-# below is only a backup that restarts the chain if it ever breaks. Scheduled and chained runs
-# skip the bulk add if creators were added in the last 30 minutes, so nothing doubles up.
+# Retired on 2026-10-26: the hourly pipeline is now "Creator pipeline v2" (experiment-v2.yml),
+# which found about 8x more creators per page. This one no longer runs on a schedule or chains;
+# it can still be started by hand. Don't run it while v2 is running: both write the main sheet.
 
 on:
-  schedule:
-    - cron: "17 * * * *"
-    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       target:
@@ -18,10 +14,6 @@ on:
         description: "Dry run: crawl and print results, don't touch the sheet"
         type: boolean
         default: false
-      chained:
-        description: "Keep going every hour after this run (leave ticked to (re)start the hourly chain)"
-        type: boolean
-        default: true
 
 # Never let two runs write to the sheet at the same time.
 concurrency:
@@ -30,7 +22,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write  # lets a run queue the next one
 
 jobs:
   run:
@@ -39,9 +30,7 @@ jobs:
     env:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       PYTHONUNBUFFERED: "1"
-      CHAIN: ${{ github.event_name == 'schedule' || inputs.chained }}
     steps:
-      - run: echo "STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -55,9 +44,7 @@ jobs:
 
       - name: Bulk add creators
         if: ${{ !inputs.dry_run }}
-        run: >
-          python bulk_add.py --target "${{ inputs.target || '100' }}"
-          ${{ env.CHAIN == 'true' && '--min-gap-minutes 30' || '' }}
+        run: python bulk_add.py --target "${{ inputs.target || '100' }}"
 
       - name: Verify creators
         # Runs even if bulk add hit a problem, so already-added rows still get verified.
@@ -65,16 +52,6 @@ jobs:
         run: python verify.py
 
       - name: Recheck a batch of qualified creators
-        # 150 per hour covers ~3,600 a day, least recently checked first.
+        # Least recently checked first.
         if: ${{ !cancelled() && !inputs.dry_run }}
         run: python recheck.py --limit 150
-
-      - name: Queue the next hourly run
-        if: ${{ !cancelled() && !inputs.dry_run && env.CHAIN == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          wait=$(( 3600 - ($(date +%s) - STARTED_AT) ))
-          if [ "$wait" -gt 0 ]; then echo "next run in ${wait}s"; sleep "$wait"; fi
-          gh workflow run creator-pipeline.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
-            -f target="${{ inputs.target || '100' }}" -f chained=true

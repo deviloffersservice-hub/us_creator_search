@@ -1,7 +1,7 @@
-name: Experiment v2 (separate sheet)
+name: Creator pipeline v2 (main sheet)
 
-# The v2 experiment runs next to the main pipeline without touching it: its own code (v2/),
-# its own spreadsheet, its own memory (Actions cache) and its own hourly chain.
+# The main pipeline since 2026-10-26: v2's code (v2/) writing to the main sheet, with its memory in
+# the Actions cache. (The file keeps its experiment-era name so the running hourly chain keeps working.)
 # Each run first queues the next one (which waits for its hour), so a crashed run can't break
 # the chain. The cron line is only a backup in case the chain is ever stopped.
 
@@ -13,7 +13,7 @@ on:
         type: boolean
         default: true
       dry_run:
-        description: "Dry run: crawl and print results, don't write the v2 sheet or state"
+        description: "Dry run: crawl and print results, don't write the sheet or state"
         type: boolean
         default: false
       not_before:
@@ -37,7 +37,7 @@ jobs:
     env:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       PYTHONUNBUFFERED: "1"
-      MAX_CONSECUTIVE_BLOCKS: "3"  # v2 gives up on LinkedIn sooner than v1, to protect the main pipeline
+      MAX_CONSECUTIVE_BLOCKS: "3"  # stop after 3 refusals in a row; the next hour gets a fresh machine
       CHAIN: ${{ github.event_name == 'schedule' || inputs.chained }}
     steps:
       - name: Wait for this run's hour
@@ -67,6 +67,10 @@ jobs:
           path: .v2state
           key: v2-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: v2-state-
+
+      - name: Copy creators from the experiment sheet (once)
+        if: ${{ !inputs.dry_run }}
+        run: python -m v2.migrate
 
       - name: Discover (dry run)
         if: ${{ inputs.dry_run }}

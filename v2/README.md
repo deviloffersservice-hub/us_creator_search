@@ -1,16 +1,18 @@
-# v2 experiment
+# v2 (the main pipeline)
 
-v2 is an improved version of the pipeline. It runs **alongside** the main one (v1) without changing it:
+v2 started as an experiment next to the original pipeline (v1), with its own spreadsheet. On
+2026-10-26 it became the main pipeline:
 
-| | v1 (main) | v2 (experiment) |
+| | v1 run 13 | v2 run 9 |
 |---|---|---|
-| Code | `bulk_add.py`, `verify.py`, `recheck.py` | `v2/` (reuses v1's parser, rules and recheck logic read-only) |
-| Workflow | `creator-pipeline.yml`, about :23 past each hour | `experiment-v2.yml`, about :53 past each hour |
-| Output | Main sheet (Bulk / Qualified / Crawl Queue) | [US Creators – v2 experiment](https://docs.google.com/spreadsheets/d/1zHA9Rm3tniFflGhO8w-1ZGKsXaFBiFVktasFvI-TYBk/edit) (Bulk / Qualified / Run Log) |
-| Memory | Crawl Queue tab | GitHub Actions cache (`.v2state/`) |
-| Pages per run | 1,100 | 600 |
+| Pages fetched | 1,100 | 600 |
+| New creators | 6 | 48 |
+| Qualified right away | 4 | 43 |
 
-v2 reads the main sheet only to avoid adding people who are already there. It never writes to it.
+It now writes to the main sheet (Bulk / Qualified / Run Log). The creators it found during the
+experiment were copied over once (`v2.migrate`), and the experiment sheet is still read to avoid
+duplicates. Memory lives in the GitHub Actions cache (`.v2state/`), and v1's Crawl Queue tab
+isn't used.
 
 ## What v2 changes
 
@@ -35,13 +37,13 @@ v2 reads the main sheet only to avoid adding people who are already there. It ne
 - **A per-run rejection breakdown in the logs.** It says why each fetched page's author didn't
   qualify (small / big / non-US / stale / already known), so changes can target the real loss.
 - **Gentler on LinkedIn.** v2 stops after 3 blocked responses in a row (v1 waits for 5), and it
-  works on different niches than v1 in the same hour.
+  gets a fresh GitHub machine (and IP) every hour.
 
 ## Controls
 
-- **Start or restart:** go to **Actions → Experiment v2 → Run workflow** and leave "chained" ticked.
-- **Stop:** disable the "Experiment v2" workflow in the Actions tab. v1 keeps running.
-- **Compare:** v2's Run Log tab shows per-run numbers. For v1, read its job logs.
+- **Start or restart:** go to **Actions → Creator pipeline v2 → Run workflow** and leave "chained" ticked.
+- **Stop:** disable the "Creator pipeline v2" workflow in the Actions tab.
+- **Per-run numbers:** see the Run Log tab, or the job log, which includes a rejection breakdown.
 
 ## Tried and dropped
 
