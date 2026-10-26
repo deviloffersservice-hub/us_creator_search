@@ -125,35 +125,44 @@ def _post(slug, days_ago):
     return f"https://www.linkedin.com/posts/{slug}_x-activity-{aid}-ab"
 
 
-def test_frontier_alternates_lanes_and_prefers_new_us_people():
-    from bulk_add import K_CANDIDATE, K_KNOWN, K_OTHER, Frontier
+def test_lane_fetch_order():
+    from bulk_add import K_CANDIDATE, K_KNOWN, K_OTHER, K_SEED, Lane
 
-    f = Frontier(NOW)
-    f.push(_post("old-known", 30), K_KNOWN)
-    f.push(_post("old-new", 30), K_CANDIDATE)
-    f.push(_post("fresh-company", 2), K_OTHER)
-    f.push(_post("fresh-new", 3), K_CANDIDATE)
-    f.push(_post("old-company", 60), K_OTHER)  # dropped: old and not a US person
-    assert len(f) == 4
-    order = [slug_from_post_url(f.pop()) for _ in range(4)]
-    assert order == ["fresh-new", "fresh-company", "old-new", "old-known"]
-    assert f.pop() is None
+    lane = Lane("HR & People Ops", budget=10, now=NOW)
+    lane.push(_post("old-known", 20), K_KNOWN)
+    lane.push(_post("old-new", 20), K_CANDIDATE)
+    lane.push(_post("fresh-company", 2), K_OTHER)
+    lane.push(_post("fresh-known", 2), K_KNOWN)
+    lane.push(_post("fresh-new-small", 3), K_CANDIDATE, reactions=2)
+    lane.push(_post("fresh-new-big", 3), K_CANDIDATE, reactions=300)
+    lane.push(_post("fresh-seed", 1), K_SEED)
+    assert not lane.push(_post("old-company", 60), K_OTHER)  # old non-US/company pages lead nowhere
+    order = []
+    while (item := lane.pop(set())):
+        order.append(slug_from_post_url(item[0]))
+    assert order == ["fresh-new-big", "fresh-new-small", "fresh-seed", "old-new", "fresh-known",
+                     "fresh-company", "old-known"]
 
 
-def test_frontier_prefers_focus_niches_and_demotes_capped_ones():
-    from bulk_add import K_CANDIDATE, K_SEED, Frontier
+def test_lane_skips_posts_fetched_elsewhere_and_drains():
+    from bulk_add import K_CANDIDATE, Lane
 
-    f = Frontier(NOW, focus={"HR & People Ops"})
-    f.push(_post("ai-person", 2), K_CANDIDATE, reactions=500, niche="AI & Machine Learning")
-    f.push(_post("hr-seed", 3), K_SEED, niche="HR & People Ops")
-    f.push(_post("hr-person", 4), K_CANDIDATE, reactions=1, niche="HR & People Ops")
-    assert slug_from_post_url(f.pop()) == "hr-person"  # focus niche's turn
-    assert slug_from_post_url(f.pop()) == "ai-person"  # then everything else gets a turn
-    assert slug_from_post_url(f.pop()) == "hr-seed"
-    f.push(_post("ai-person-2", 1), K_CANDIDATE, niche="AI & Machine Learning")
-    f.push(_post("sales-seed", 5), K_SEED, niche="Sales")
-    # AI is capped this run: its candidates drop below other seeds.
-    assert slug_from_post_url(f.pop(frozenset({"AI & Machine Learning"}))) == "sales-seed"
+    lane = Lane(None, budget=float("inf"), now=NOW)
+    a, b = _post("a", 2), _post("b", 3)
+    lane.push(a, K_CANDIDATE)
+    lane.push(b, K_CANDIDATE)
+    assert slug_from_post_url(lane.pop({a})[0]) == "b"
+    assert lane.pop(set()) is None and not lane.entry  # fully drained, nothing stale left behind
+
+
+def test_lane_budget():
+    from bulk_add import K_CANDIDATE, Lane
+
+    lane = Lane("Legal", budget=1, now=NOW)
+    lane.push(_post("a", 2), K_CANDIDATE)
+    assert lane.has_work()
+    lane.used = 1
+    assert not lane.has_work()
 
 
 def test_niche_tagging_covers_roles():
@@ -168,9 +177,10 @@ def test_niche_tagging_covers_roles():
         == "how we hire recruiters"
 
 
-def test_focus_niches_picks_least_covered():
-    counts = {n: 10 for n in niches.ALL}
-    counts["Legal"] = 0
-    counts["Real Estate"] = 2
-    assert niches.focus_niches(counts, 2, rotation=0) == ["Legal", "Real Estate"]
-    assert len(set(niches.focus_niches({}, 6, rotation=5))) == 6
+def test_rotation_walks_through_every_niche():
+    seen = set()
+    for slot in range(len(niches.ALL)):
+        picked = niches.rotation(6, slot)
+        assert len(set(picked)) == 6
+        seen.update(picked)
+    assert seen == set(niches.ALL)

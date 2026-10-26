@@ -261,7 +261,7 @@ def text_from_post_url(url: str) -> str:
     return m.group(1).replace("-", " ") if m else ""
 
 
-def focus_niches(counts: dict[str, int], k: int, rotation: int) -> list[str]:
-    """The k niches with the fewest qualified creators so far (ties broken by a rotating order)."""
-    order = ALL[rotation % len(ALL):] + ALL[: rotation % len(ALL)]
-    return sorted(order, key=lambda n: counts.get(n, 0))[:k]
+def rotation(k: int, slot: int) -> list[str]:
+    """The k niches for this time slot, walking through every niche in turn."""
+    start = (slot * k) % len(ALL)
+    return [ALL[(start + i) % len(ALL)] for i in range(min(k, len(ALL)))]

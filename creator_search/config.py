@@ -29,11 +29,12 @@ US_SUBDOMAIN = "www"
 # Run sizes.
 BULK_TARGET = _int("BULK_TARGET", 100)
 MAX_PAGES_PER_BULK_RUN = _int("MAX_PAGES_PER_BULK_RUN", 700)
-# Each run concentrates on the niches with the fewest qualified creators so far.
-FOCUS_NICHES_PER_RUN = _int("FOCUS_NICHES_PER_RUN", 6)
-TOPIC_SUBPAGES = _int("TOPIC_SUBPAGES", 2)  # extra LinkedIn topic pages fetched per focus niche
-# Soft cap so one topic cluster can't fill a whole run; lifted if we run short.
-NICHE_CAP_PER_RUN = _int("NICHE_CAP_PER_RUN", 15)
+# Niche lanes: each run takes the next NICHES_PER_RUN niches in rotation and splits
+# NICHE_LANE_SHARE of the page budget equally between them; the rest goes to general discovery.
+NICHES_PER_RUN = _int("NICHES_PER_RUN", 6)
+NICHE_LANE_SHARE = _float("NICHE_LANE_SHARE", 0.7)
+LANE_DEPTH = _int("LANE_DEPTH", 3)  # hops of related posts a lane follows before handing them on
+TOPIC_SUBPAGES = _int("TOPIC_SUBPAGES", 2)  # extra LinkedIn topic pages fetched per niche lane
 SEARCH_QUERIES_PER_RUN = _int("SEARCH_QUERIES_PER_RUN", 12)
 # Activity check for creators whose newest public post we found is older than 14 days:
 # their total post count is recorded and compared at later checks. If it rises they have

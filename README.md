@@ -36,13 +36,23 @@ Data, Cybersecurity, Product, Design, Corporate Finance & Accounting, Investing 
 Finance, Banking & Fintech, Marketing, Sales, Customer Success, Leadership, Career, Consulting,
 Operations & Supply Chain, Project Management, Healthcare, Science, Education, Real Estate,
 Legal, Retail & E-commerce, Hospitality, Sustainability, Writing, Communication, Productivity,
-Wellness, Personal Branding and DEI. Every run picks the **6 niches with the fewest creators in the
-Qualified tab** and starts the crawl inside them. It uses LinkedIn's public topic pages for those
-niches (`linkedin.com/top-content/recruitment-hr/` and so on), crawl-queue posts tagged with them,
-and a web search for them. Related posts stay on-topic, so the crawl finds people in those
-niches, and those niches' candidates are opened first. With hourly runs, every niche gets a
-turn several times a day. To add a niche or role, add an entry to `NICHES` with keywords,
-search phrases and (optionally) topic pages.
+Wellness, Personal Branding and DEI.
+
+Discovery runs in **niche lanes**. Each run takes the next **6 niches in a fixed rotation**, so all
+35 are covered every ~6 hours, several times a day. Each lane gets an equal share of 70% of the
+run's page budget and starts from fresh posts in its niche:
+
+- a web search for the niche's phrases (posts from the past week)
+- recent posts on LinkedIn's public topic pages (`linkedin.com/top-content/recruitment-hr/` and so on)
+- crawl-queue posts saved under that niche by earlier runs
+
+A lane then follows LinkedIn's related posts for up to 3 hops. LinkedIn picks related posts by
+topic, so the lane stays inside its niche. The remaining 30% goes to a general lane (the saved
+crawl queue, qualified creators' posts, post links in the sheet, `seeds.txt`), which also uses
+any budget a niche lane doesn't need. There are no per-niche caps or quotas to tune.
+
+To add a niche or role, add an entry to `NICHES` with keywords, search phrases and (optionally)
+LinkedIn topic pages.
 
 **The activity check** (`verify.py`): a creator qualifies right away if we can see a post from the
 last 14 days. If the newest post we can see is older, the creator stays `Watching`. Their total
@@ -129,7 +139,6 @@ US creators with 5K–100K followers in about 10 minutes (median about 10K follo
   their post count goes up.
 - Anyone with no new post after 14 days of checks is `Rejected` with the reason given.
 
-A soft cap of 15 per niche per run (`NICHE_CAP_PER_RUN`) stops any single niche from filling a run.
 Niche tags come from each creator's post text, so they're a best guess. LinkedIn doesn't show
 job titles to logged-out visitors.
 
