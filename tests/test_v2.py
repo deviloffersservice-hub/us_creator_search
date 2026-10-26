@@ -113,7 +113,8 @@ def test_company_queue_skips_recently_read():
 
 def test_discover_run_offline_reports_outcomes(tmp_path, monkeypatch):
     """A tiny fake LinkedIn: one start post whose related posts lead to a creator, a small account
-    and a non-US account. Discovery should add only the creator and count why the others failed."""
+    and a non-US account. Discovery should add only the creator and count why the others failed.
+    The small account's card shows its follower count, so it is judged without fetching its post."""
     from creator_search.linkedin import RelatedPost
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     now = datetime.now(timezone.utc)
@@ -122,15 +123,20 @@ def test_discover_run_offline_reports_outcomes(tmp_path, monkeypatch):
         url = f"https://www.linkedin.com/posts/{slug}_x-activity-{int(now.timestamp() * 1000) << 22 | len(slug)}-ab"
         page = PostPage(url=url, author=Author(slug.title(), slug, "in", country, followers),
                         published=now - timedelta(days=1), total_posts=100, text="hiring recruiting talent")
-        page.related = [RelatedPost(url=p.url, activity_id=None, author=p.author, reactions=r) for p, r in related]
+        page.related = [RelatedPost(url=p.url, activity_id=None, author=Author(**{**vars(p.author), "followers": f}),
+                                    reactions=r) for p, r, f in related]
         return page
 
     creator, small, foreign = post("creator", 20000), post("tiny", 800), post("abroad", 30000, "uk")
-    start = post("start", 400000, related=[(creator, 120), (small, 3), (foreign, 50)])
-    pages = {p.url: p for p in (creator, small, foreign, start)}
+    second = post("tiny2", 900)
+    start = post("start", 400000, related=[(creator, 120, None), (small, 3, 800), (foreign, 50, None),
+                                           (second, 1, None)])
+    pages = {p.url: p for p in (creator, small, foreign, second, start)}
+    fetched = []
 
     class FakeFetcher:
         def post(self, url):
+            fetched.append(canonical(url))
             return pages[canonical(url)]
 
     from creator_search.linkedin import canonical_post_url as canonical
@@ -143,5 +149,16 @@ def test_discover_run_offline_reports_outcomes(tmp_path, monkeypatch):
     st = State.load()
     assert st.seen["creator"][0] == "added" and st.seen["tiny"][0] == "small"
     assert st.current["found"] == 1
-    assert st.current["outcomes"]["new person"] == {"added": 1, "small": 1}
+    assert st.current["outcomes"]["new person"] == {"added": 1, "small": 1}  # tiny2's card had no count
     assert st.current["by_reactions"]["50-199"] == {"added": 1}
+    # tiny was judged from its card; its post is only crawled (for related posts) after the candidates
+    assert st.current["card_rejected"] == 1
+    assert fetched.index(small.url) > max(fetched.index(creator.url), fetched.index(second.url))
+
+
+def test_card_status_only_rejects_clear_misses():
+    assert discover.card_status(None) is None
+    assert discover.card_status(3000) == "small"
+    assert discover.card_status(4500) is None  # close to 5K: fetch the post and use its exact count
+    assert discover.card_status(110000) is None
+    assert discover.card_status(200000) == "big"

@@ -38,3 +38,8 @@ WATCH_MAX = _int("V2_WATCH_MAX", 200)
 
 RECHECK_PER_RUN = _int("V2_RECHECK_PER_RUN", 150)
 ALERT_AFTER_EMPTY_RUNS = _int("V2_ALERT_AFTER_EMPTY_RUNS", 3)
+
+# A related-post card's follower count rejects someone without fetching their post only when it is
+# clearly out of range (under 80% of the minimum or over 120% of the maximum).
+CARD_MARGIN_LOW = _float("V2_CARD_MARGIN_LOW", 0.8)
+CARD_MARGIN_HIGH = _float("V2_CARD_MARGIN_HIGH", 1.2)

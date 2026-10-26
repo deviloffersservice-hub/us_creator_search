@@ -24,7 +24,8 @@ from pathlib import Path
 from creator_search import niches, rules
 from creator_search import config as v1config
 from creator_search.linkedin import (Blocked, Fetcher, NotFound, activity_id_from_url, activity_time,
-                                     canonical_post_url, normalize_slug, profile_url, topic_post_urls)
+                                     canonical_post_url, normalize_slug, profile_url, slug_from_post_url,
+                                     topic_post_urls)
 from creator_search.sheets import (BULK_HEADERS, PROFILE_RE, QUALIFIED_HEADERS, Sheet, fmt_date, fmt_time,
                                    normalize_name, now_ist, parse_time)
 
@@ -64,10 +65,14 @@ class Lane:
         if slug and slug not in self.companies and now - done.get(slug, 0) > config.COMPANY_REVISIT_HOURS * 3600:
             self.companies.append(slug)
 
-    def push(self, url: str, kind: int, depth: int = 0, reactions: int = 0, niche: str = "") -> bool:
+    def push(self, url: str, kind: int, depth: int = 0, reactions: int = 0, niche: str = "",
+             likely: bool = False) -> bool:
+        """likely: the related-post card already showed a follower count in range, so fetch it first."""
         url = canonical_post_url(url)
         aid = int(activity_id_from_url(url) or 0)
         r = rank(kind, bool(aid) and rules.recent(activity_time(aid), self.now))
+        if r is not None and likely:
+            r -= 1
         if r is None or (url in self.entry and self.entry[url][0] <= r):
             return False
         self.entry[url] = (r, kind, depth, reactions, aid, niche or self.niche or "")
@@ -115,6 +120,18 @@ def search_plan(lane_niches: list[str]) -> list[tuple[str, str]]:
 
 
 KIND_NAMES = {K_CANDIDATE: "new person", K_SEED: "start post", K_KNOWN: "known person", K_OTHER: "non-US/company"}
+
+
+def card_status(followers: int | None) -> str | None:
+    """Reject from the follower count a related-post card shows, without fetching the post. Cards
+    can lag the post page a little, so only clear misses are rejected."""
+    if followers is None:
+        return None
+    if followers < v1config.MIN_FOLLOWERS * config.CARD_MARGIN_LOW:
+        return "small"
+    if followers > v1config.MAX_FOLLOWERS * config.CARD_MARGIN_HIGH:
+        return "big"
+    return None
 
 
 def reaction_bucket(n: int) -> str:
@@ -226,7 +243,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     blocked = False
     outcomes: dict[str, Counter] = defaultdict(Counter)  # kind of page fetched -> what its author turned out to be
     by_reactions: dict[str, Counter] = defaultdict(Counter)  # new-person pages: reactions bucket -> outcome
-    related_cards = related_with_followers = 0
+    related_cards = related_with_followers = card_rejected = 0
+    card_followers: dict[str, int] = {}  # follower count shown on related-post cards, to check against post pages
+    card_checks = Counter()
     turn = 0
 
     def saw(slug: str, published: datetime | None, url: str, text: str = ""):
@@ -285,6 +304,11 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             break
         lane, url, kind, depth, reactions = nxt
         visited.add(url)
+        if kind == K_CANDIDATE and slug_from_post_url(url) in decided:
+            # Another post of someone already judged this run: only worth it for its related posts.
+            lane.push(url, K_KNOWN, depth, reactions)
+            visited.discard(url)
+            continue
         try:
             page = fetcher.post(url)
         except NotFound:
@@ -307,19 +331,28 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             related_cards += 1
             related_with_followers += ra.followers is not None
             saw(ra.slug, r.published, r.url, r.text)
+            likely = False
             if ra.is_person and ra.is_us:
                 if ra.slug in known_slugs or ra.slug in decided or st.skip(ra.slug):
                     rkind = K_KNOWN
                     skipped_known += 1
+                elif (cstatus := card_status(ra.followers)):
+                    st.remember(ra.slug, cstatus, ra.followers)
+                    decided.add(ra.slug)
+                    rkind = K_KNOWN
+                    card_rejected += 1
                 else:
                     rkind = K_CANDIDATE
                     candidate_cards += 1
+                    if ra.followers is not None:
+                        likely = True
+                        card_followers[ra.slug] = ra.followers
             else:
                 rkind = K_OTHER
                 if ra.kind == "company" and ra.is_us:
                     (lane if lane.niche else general).add_company(ra.slug, st.companies_done, time.time())
             follow.push(r.url, rkind, depth + 1 if follow is lane else 0, r.reactions,
-                        niche=lane.niche or tag([r.text], r.url))
+                        niche=lane.niche or tag([r.text], r.url), likely=likely)
 
         def outcome(what: str):
             outcomes[KIND_NAMES[kind]][what] += 1
@@ -333,6 +366,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             outcome("seen this run")
             continue
         decided.add(a.slug)
+        if a.slug in card_followers and a.followers:
+            card_checks["card within 10% of page" if abs(card_followers[a.slug] - a.followers) <= 0.1 * a.followers
+                        else "card differs"] += 1
         if a.slug in known_slugs or normalize_name(a.name) in known_names:
             outcome("already in a sheet")
             continue
@@ -382,7 +418,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         if by_reactions[bucket]:
             c = by_reactions[bucket]
             log.info("  new-person posts with %-6s reactions %4d: %s", bucket, sum(c.values()), dict(c.most_common()))
-    log.info("related post cards: %d, %d of them show a follower count", related_cards, related_with_followers)
+    log.info("related post cards: %d, %d of them show a follower count; %d people rejected from the card alone; "
+             "card vs page follower counts: %s", related_cards, related_with_followers, card_rejected, dict(card_checks))
 
     if use_sheet:
         bulk.append(found)
@@ -407,7 +444,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                   "candidate_cards": candidate_cards, "company_pages": company_pages,
                   "company_posts": company_posts, "company_pages_refused": not companies_ok,
                   "blocked": blocked,
-                  "outcomes": {k: dict(v) for k, v in outcomes.items()},
+                  "outcomes": {k: dict(v) for k, v in outcomes.items()}, "card_rejected": card_rejected,
+                  "card_checks": dict(card_checks),
                   "by_reactions": {k: dict(v) for k, v in by_reactions.items()},
                   "lane_found": lane_found, "niches": niche_counts, "discover_minutes": round((time.time() - started) / 60, 1)}
     if save_state:
