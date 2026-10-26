@@ -1,7 +1,7 @@
 name: v1 pipeline (retired, manual only)
 
 # Retired on 2026-10-26: the hourly pipeline is now "Creator pipeline v2" (experiment-v2.yml),
-# which found about 8x more creators per page. This one no longer runs on a schedule or chains;
+# which found more creators per page in side-by-side runs. This one no longer runs on a schedule or chains;
 # it can still be started by hand. Don't run it while v2 is running: both write the main sheet.
 
 on:

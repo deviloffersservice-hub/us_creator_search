@@ -3,11 +3,15 @@
 v2 started as an experiment next to the original pipeline (v1), with its own spreadsheet. On
 2026-10-26 it became the main pipeline:
 
-| | v1 run 13 | v2 run 9 |
-|---|---|---|
-| Pages fetched | 1,100 | 600 |
-| New creators | 6 | 48 |
-| Qualified right away | 4 | 43 |
+| | v1 run 13 | v1 run 15 | v2 run 9 |
+|---|---|---|---|
+| Pages fetched | 1,100 | 1,100 | 600 |
+| New creators | 6 | 40 | 48 |
+| Qualified right away | 4 | 40 | 43 |
+| Creators per 100 pages | 0.5 | 3.6 | 8.0 |
+
+Yields swing a lot from run to run (it depends on which clusters of posts a run lands in), so
+judge over a day of runs, not one.
 
 It now writes to the main sheet (Bulk / Qualified / Run Log). The creators it found during the
 experiment were copied over once (`v2.migrate`), and the experiment sheet is still read to avoid

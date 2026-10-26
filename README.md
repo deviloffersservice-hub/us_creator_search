@@ -6,7 +6,8 @@ Finds US-based LinkedIn creators with **5,000–100,000 followers** who have **p
 It's free: no LinkedIn login, no paid APIs, and it runs on GitHub Actions.
 
 > **Since 2026-10-26 the hourly pipeline is v2** (`v2/`, workflow **Creator pipeline v2**). In
-> side-by-side runs it found about 8x more creators per page than the original scripts below.
+> side-by-side runs it found more creators per page than the original scripts below (v2: 48 from
+> 600 pages; v1: 6 and 40 from 1,100). Yields swing a lot from run to run, so compare over a day.
 > [v2/README.md](v2/README.md) explains what it does differently. The original v1 workflow is kept
 > for manual runs only. The twice-daily `recheck.yml` still runs.
 
