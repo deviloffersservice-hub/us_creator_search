@@ -30,7 +30,7 @@ from creator_search.sheets import (BULK_HEADERS, PROFILE_RE, QUALIFIED_HEADERS, 
                                    normalize_name, now_ist, parse_time)
 
 from . import config, phrases
-from .sources import CompanyPagesBlocked, company_page, search_many_engines
+from .sources import CompanyPagesBlocked, Searcher, company_page
 from .state import State
 
 log = logging.getLogger("v2.discover")
@@ -40,8 +40,11 @@ V2_QUALIFIED_HEADERS = QUALIFIED_HEADERS + ["Found Via"]
 K_CANDIDATE, K_SEED, K_KNOWN, K_OTHER = 0, 1, 2, 3
 
 
-def rank(kind: int, fresh: bool) -> int | None:
-    """Fetch order within a lane (lower first); None = not worth fetching."""
+def rank(kind: int, fresh: bool, too_old: bool = False) -> int | None:
+    """Fetch order within a lane (lower first); None = not worth fetching.
+    too_old: older than the newest-post limit, so its author can't qualify from this post."""
+    if kind == K_CANDIDATE and too_old:
+        return None
     if kind in (K_CANDIDATE, K_SEED):
         return 0 if fresh else (1 if kind == K_CANDIDATE else 3)
     if kind == K_KNOWN:
@@ -70,7 +73,9 @@ class Lane:
         """likely: the related-post card already showed a follower count in range, so fetch it first."""
         url = canonical_post_url(url)
         aid = int(activity_id_from_url(url) or 0)
-        r = rank(kind, bool(aid) and rules.recent(activity_time(aid), self.now))
+        posted = activity_time(aid) if aid else None
+        r = rank(kind, rules.recent(posted, self.now),
+                 bool(posted) and not rules.recent(posted, self.now, days=v1config.MAX_SEEN_POST_AGE_DAYS))
         if r is not None and likely:
             r -= 1
         if r is None or (url in self.entry and self.entry[url][0] <= r):
@@ -92,8 +97,22 @@ class Lane:
             return url, entry[1], entry[2], entry[3]
         return None
 
+    def best_rank(self) -> int | None:
+        while self.heap:
+            r, *_, url = self.heap[0]
+            entry = self.entry.get(url)
+            if entry and entry[0] == r:
+                return r
+            heapq.heappop(self.heap)
+        return None
+
     def has_work(self) -> bool:
-        return self.used < self.budget and bool(self.entry)
+        """A niche lane gets turns while it has new people or start posts to fetch; once only
+        crawl-only posts are left, its pages go to the general lane instead."""
+        if self.used >= self.budget:
+            return False
+        best = self.best_rank()
+        return best is not None and (self.niche is None or best <= 1)
 
     def leftovers(self) -> list[tuple]:
         """(sort key..., url, kind, niche, reactions), best first."""
@@ -111,10 +130,22 @@ def load_seed_file() -> list[str]:
     return [ln.strip() for ln in path.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
 
 
-def search_plan(lane_niches: list[str]) -> list[tuple[str, str]]:
-    """(phrase, niche): round-robin across niches so every niche gets its first phrase early."""
-    picks = {n: random.sample(phrases.for_niche(n), min(config.PHRASES_PER_NICHE, len(phrases.for_niche(n))))
-             for n in lane_niches}
+def phrase_order(options: list[str], stats: dict[str, list[int]]) -> list[str]:
+    """Phrases that found posts before first (best answer rate first), then untried ones, then
+    phrases that have never found anything (they still get an occasional turn, last)."""
+    def key(p):
+        asked, answered = stats.get(p, [0, 0])
+        if not asked:
+            return (1, random.random())
+        if not answered:
+            return (2 if asked >= 2 else 1, random.random())
+        return (0, -answered / asked, random.random())
+    return sorted(options, key=key)
+
+
+def search_plan(lane_niches: list[str], stats: dict[str, list[int]] | None = None) -> list[tuple[str, str]]:
+    """(phrase, niche): round-robin across niches so every niche gets its best phrase early."""
+    picks = {n: phrase_order(phrases.for_niche(n), stats or {})[: config.PHRASES_PER_NICHE] for n in lane_niches}
     plan = [(picks[n][i], n) for i in range(config.PHRASES_PER_NICHE) for n in lane_niches if i < len(picks[n])]
     return plan[: config.SEARCH_QUERIES]
 
@@ -200,12 +231,25 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     fetcher = Fetcher()
 
     # Seeds: fresh niche posts from search first, then topic pages (older ones only if a lane is short).
-    if use_search:
-        plan = search_plan(lane_niches)
-        for phrase, urls in search_many_engines([p for p, _ in plan]).items():
-            niche = dict(plan)[phrase]
-            for url in urls:
-                lanes[niche].push(url, K_SEED)
+    plan = search_plan(lane_niches, st.phrases) if use_search else []
+    searcher = Searcher() if use_search else None
+    search_posts = 0
+
+    def search_turn():
+        """Run the next planned search (if the engines aren't cooling down) and seed its lane."""
+        nonlocal search_posts
+        if not plan or not searcher.ready():
+            return
+        phrase, niche = plan.pop(0)
+        urls = searcher.search(phrase)
+        stat = st.phrases.setdefault(phrase, [0, 0])
+        stat[0] += 1
+        stat[1] += bool(urls)
+        for url in urls:
+            search_posts += lanes[niche].push(url, K_SEED)
+
+    for _ in range(config.SEARCH_UPFRONT):
+        search_turn()
     for niche, lane in lanes.items():
         topics = list(niches.NICHES[niche]["topics"])
         random.shuffle(topics)
@@ -243,6 +287,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     pages = skipped_known = candidate_cards = company_pages = company_posts = 0
     companies_ok = True
     blocked = False
+    last_search_at = 0
     outcomes: dict[str, Counter] = defaultdict(Counter)  # kind of page fetched -> what its author turned out to be
     by_reactions: dict[str, Counter] = defaultdict(Counter)  # new-person pages: reactions bucket -> outcome
     related_cards = related_with_followers = card_rejected = 0
@@ -300,6 +345,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                 for other in similar:
                     clane.add_company(other, st.companies_done, time.time())
                 continue
+        if searcher and pages - last_search_at >= config.SEARCH_EVERY_PAGES:
+            last_search_at = pages
+            search_turn()
         nxt = next_page()
         if not nxt:
             log.info("nothing left to crawl")
@@ -307,10 +355,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         lane, url, kind, depth, reactions = nxt
         visited.add(url)
         if kind == K_CANDIDATE and slug_from_post_url(url) in decided:
-            # Another post of someone already judged this run: only worth it for its related posts.
-            lane.push(url, K_KNOWN, depth, reactions)
-            visited.discard(url)
-            continue
+            continue  # another post of someone already judged this run; the queue has plenty to crawl
         try:
             page = fetcher.post(url)
         except NotFound:
@@ -441,10 +486,15 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     for key, lane in [*lanes.items(), ("", general)]:
         st.companies[key] = list(dict.fromkeys(lane.companies + st.companies.get(key, [])))[:300]
     log.info("company pages read: %d, giving %d fresh posts to start from", company_pages, company_posts)
+    if searcher:
+        log.info("searches: %d asked, %d answered, %d new posts to start from", searcher.asked, searcher.answered,
+                 search_posts)
     st.current = {"run_at": fmt_time(now_ist()), "lanes": ", ".join(lane_niches), "pages": pages,
                   "found": len(found), "fresh": fresh, "skipped_known": skipped_known,
                   "candidate_cards": candidate_cards, "company_pages": company_pages,
                   "company_posts": company_posts, "company_pages_refused": not companies_ok,
+                  "searches": searcher.asked if searcher else 0,
+                  "searches_answered": searcher.answered if searcher else 0, "search_posts": search_posts,
                   "blocked": blocked,
                   "outcomes": {k: dict(v) for k, v in outcomes.items()}, "card_rejected": card_rejected,
                   "card_checks": dict(card_checks),

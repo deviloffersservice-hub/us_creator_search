@@ -2,8 +2,8 @@
 
 * Company pages (linkedin.com/company/<slug>/) are public. Each lists the company's ~10 latest
   posts and ~20 "similar pages", so they're an endless supply of fresh, industry-specific posts.
-* Search across several engines (ddgs backends). Each engine rate-limits separately, so rotating
-  them gets more fresh posts per run than DuckDuckGo alone.
+* Search across several engines (ddgs backends), one query at a time spread over the run, since
+  engines rate-limit per time window.
 """
 from __future__ import annotations
 
@@ -50,38 +50,77 @@ def company_page(fetcher, slug: str) -> tuple[list[str], list[str]]:
 BACKENDS = ["auto", "duckduckgo", "brave", "yahoo", "startpage", "mojeek"]
 
 
-def search_many_engines(terms: list[str], per_query: int = 25) -> dict[str, list[str]]:
-    """term -> LinkedIn post URLs. Each query tries the engines in BACKENDS order until one answers;
-    an engine that fails twice in a row is dropped for this run."""
-    try:
-        from ddgs import DDGS
-    except ImportError:
-        return {}
-    for noisy in ("primp", "ddgs", "httpx"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
-    alive = {b: 0 for b in BACKENDS}
-    out: dict[str, list[str]] = {}
-    for term in terms:
-        for backend in list(alive):
+class Searcher:
+    """One search at a time, spread over the whole run (engines rate-limit per time window, so a
+    query every minute or so gets far more answers than a burst at the start).
+
+    Each query tries the engines in BACKENDS order until one answers. An engine is dropped for the
+    run after ENGINE_MAX_FAILS failures in a row. A query no engine answers is often just a phrase
+    with no posts this week, so it doesn't count against the engines by itself; instead the next
+    search turns are skipped (1, 2, 4... turns) to give the engines time to cool down.
+    """
+
+    ENGINE_MAX_FAILS = 4
+
+    def __init__(self, per_query: int = 25):
+        self.per_query = per_query
+        self.fails = {b: 0 for b in BACKENDS}
+        self.dead_in_a_row = 0
+        self.cooldown = 0
+        self.answered = self.asked = 0
+        try:
+            from ddgs import DDGS
+            self._ddgs = DDGS
+        except ImportError:
+            self._ddgs = None
+            self.fails = {}
+        for noisy in ("primp", "ddgs", "httpx"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    @property
+    def alive(self) -> bool:
+        return bool(self.fails)
+
+    def ready(self) -> bool:
+        """Call once per search turn; False while cooling down after unanswered queries."""
+        if self.cooldown > 0:
+            self.cooldown -= 1
+            return False
+        return self.alive
+
+    def search(self, term: str) -> list[str]:
+        self.asked += 1
+        failed = []
+        for backend in list(self.fails):
             try:
-                results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en", timelimit="w",
-                                      max_results=per_query, backend=backend)
+                results = self._ddgs().text(f"site:linkedin.com/posts {term}", region="us-en", timelimit="w",
+                                            max_results=self.per_query, backend=backend)
                 urls = [canonical_post_url(r["href"]) for r in results if POST_URL_RE.match(r.get("href", ""))]
             except Exception as e:  # blocked, captcha, timeout or no results
                 urls = []
-                log.info("search %r on %s failed (%s)", term, backend, str(e)[:80])
+                log.debug("search %r on %s failed (%s)", term, backend, str(e)[:80])
             if urls:
-                alive[backend] = 0
-                out[term] = urls
+                for b in failed:  # another engine answered this phrase, so those failures were real
+                    self._failed(b)
+                self.fails[backend] = 0
+                self.dead_in_a_row = 0
+                self.answered += 1
                 log.info("search %r on %s -> %d posts", term, backend, len(urls))
-                time.sleep(2)
-                break
-            alive[backend] += 1
-            if alive[backend] >= 2:
-                log.info("dropping search engine %s for this run", backend)
-                del alive[backend]
-            time.sleep(3)
-        if not alive:
-            log.info("all search engines are refusing us; stopping searches")
-            break
-    return out
+                return list(dict.fromkeys(urls))
+            failed.append(backend)
+            time.sleep(2)
+        self.dead_in_a_row += 1
+        self.cooldown = 2 ** (self.dead_in_a_row - 1)
+        if self.dead_in_a_row >= 3:  # three phrases in a row with no answer anywhere: engines are refusing
+            for b in failed:
+                self._failed(b)
+        log.info("search %r: no engine answered (cooling down for %d turns)", term, self.cooldown)
+        return []
+
+    def _failed(self, backend: str):
+        if backend not in self.fails:
+            return
+        self.fails[backend] += 1
+        if self.fails[backend] >= self.ENGINE_MAX_FAILS:
+            log.info("dropping search engine %s for this run", backend)
+            del self.fails[backend]

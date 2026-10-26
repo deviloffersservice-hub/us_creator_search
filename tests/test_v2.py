@@ -48,8 +48,16 @@ def test_search_plan_round_robin():
     plan = discover.search_plan(["HR & People Ops", "Legal"])
     niches_in_order = [n for _, n in plan]
     assert niches_in_order[:2] == ["HR & People Ops", "Legal"]
-    assert len(plan) == 2 * config.PHRASES_PER_NICHE
+    from v2 import phrases
+    assert len(plan) == sum(min(config.PHRASES_PER_NICHE, len(phrases.for_niche(n))) for n in ("HR & People Ops", "Legal"))
     assert len({p for p, _ in plan}) == len(plan)
+
+
+def test_phrase_order_prefers_phrases_that_worked():
+    stats = {"good": [4, 3], "ok": [4, 1], "dud": [3, 0], "once-failed": [1, 0]}
+    order = discover.phrase_order(["dud", "ok", "new", "good", "once-failed"], stats)
+    assert order[:2] == ["good", "ok"]
+    assert set(order[2:4]) == {"new", "once-failed"} and order[-1] == "dud"
 
 
 def test_rejection_status():
@@ -171,3 +179,40 @@ def test_migrate_copies_only_new_profiles():
               {"_row": 4, "Name": "B again", "Profile URL": "https://www.linkedin.com/in/b"}]
     target = [{"_row": 2, "Name": "A", "Profile URL": "https://linkedin.com/in/a"}]
     assert new_rows(source, target) == [{"Name": "B", "Profile URL": "https://www.linkedin.com/in/b/"}]
+
+
+def test_old_candidate_posts_are_not_fetched_and_dry_lanes_yield():
+    lane = discover.Lane("Legal", 100, NOW)
+    assert not lane.push(_post("old-candidate", 45), discover.K_CANDIDATE)  # past the 30-day limit
+    assert lane.push(_post("recentish-candidate", 20), discover.K_CANDIDATE)
+    assert lane.has_work()
+    lane.pop(set())
+    lane.push(_post("known-person", 2), discover.K_KNOWN)
+    assert not lane.has_work()  # only crawl-only posts left: the general lane takes these turns
+    general = discover.Lane(None, float("inf"), NOW)
+    general.push(_post("known-person", 2), discover.K_KNOWN)
+    assert general.has_work()
+
+
+def test_searcher_spreads_blame_and_cools_down(monkeypatch):
+    from v2 import sources
+    monkeypatch.setattr(sources.time, "sleep", lambda s: None)
+    answers = {}  # (backend, term) -> urls
+
+    class FakeDDGS:
+        def text(self, query, backend, **kw):
+            term = query.split(" ", 1)[1]
+            urls = answers.get((backend, term))
+            if not urls:
+                raise RuntimeError("No results found.")
+            return [{"href": u} for u in urls]
+
+    s = sources.Searcher()
+    s._ddgs = FakeDDGS
+    post = "https://www.linkedin.com/posts/jane_x-activity-7518390684312317952-ab"
+    answers[("brave", "hr")] = [post]
+    assert s.search("hr") == [post]
+    assert s.fails["auto"] == 1 and s.fails["duckduckgo"] == 1 and s.fails["brave"] == 0
+    assert s.search("nothing this week") == []  # nobody answered: not blamed on the engines yet
+    assert s.fails["auto"] == 1 and s.cooldown == 1
+    assert not s.ready() and s.ready()  # skips one turn, then searches again
