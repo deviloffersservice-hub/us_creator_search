@@ -7,9 +7,16 @@ It's free: no LinkedIn login, no paid APIs, and it runs on GitHub Actions.
 
 | Script | When (IST) | What it does |
 |---|---|---|
-| `bulk_add.py` | every hour (:17 past, backup slot at :47) | Adds 100 new creators to the **Bulk** tab as `Pending` |
+| `bulk_add.py` | every hour | Adds 100 new creators to the **Bulk** tab as `Pending` |
 | `verify.py` | right after each bulk run | Re-checks every `Pending`/`Watching` row → `Qualified` / `Rejected` / `Watching`; copies qualified ones to **Qualified** |
-| `recheck.py` | 06:00 and 18:00 IST daily | Re-checks up to 2,000 creators in **Qualified** (least recently checked first) → `Active` / `Inactive` / `Out of range` |
+| `recheck.py` | every hour (150 creators) + 06:00 / 18:00 IST (up to 2,000) | Re-checks the least recently checked creators in **Qualified** → `Active` / `Inactive` / `Out of range` |
+
+**How "every hour" works:** GitHub's own scheduler drops most hourly runs, so the pipeline runs as a
+**chain**. Each run does its work, waits until an hour has passed since it started, then queues the
+next run. The `:17` / `:47` cron entries are only a backup that restarts the chain if it ever breaks.
+Scheduled and chained runs skip the bulk add if creators were added in the last 30 minutes. To
+restart the chain by hand, go to **Actions → Creator pipeline → Run workflow** (leave "chained" ticked).
+To stop it, disable the workflow in the Actions tab.
 
 No duplicates: before adding anyone, the script reads **every tab** in the spreadsheet,
 including the GPT-made tabs. It skips anyone whose LinkedIn profile link is already
