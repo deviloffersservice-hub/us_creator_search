@@ -2,7 +2,10 @@ name: Daily recheck of qualified creators
 
 on:
   schedule:
-    - cron: "30 0 * * *"   # 06:00 IST (00:30 UTC)
+    # Twice a day (06:00 and 18:00 IST): GitHub sometimes drops scheduled runs, and a second
+    # pass simply rechecks the next least-recently-checked creators.
+    - cron: "30 0 * * *"
+    - cron: "30 12 * * *"
   workflow_dispatch:
 
 # Separate lane from the hourly pipeline: they write different cells, so both can run at once.
