@@ -1,0 +1,98 @@
+name: Experiment v2 (separate sheet)
+
+# The v2 experiment runs next to the main pipeline without touching it: its own code (v2/),
+# its own spreadsheet, its own memory (Actions cache) and its own hourly chain.
+# Each run first queues the next one (which waits for its hour), so a crashed run can't break
+# the chain. The cron line is only a backup in case the chain is ever stopped.
+
+on:
+  workflow_dispatch:
+    inputs:
+      chained:
+        description: "Keep going every hour after this run"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Dry run: crawl and print results, don't write the v2 sheet or state"
+        type: boolean
+        default: false
+      not_before:
+        description: "Internal: unix time this run should wait for (set by the previous run)"
+        default: "0"
+  schedule:
+    - cron: "53 */3 * * *"
+
+concurrency:
+  group: v2-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write  # lets a run queue the next one
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      PYTHONUNBUFFERED: "1"
+      MAX_CONSECUTIVE_BLOCKS: "3"  # v2 gives up on LinkedIn sooner than v1, to protect the main pipeline
+      CHAIN: ${{ github.event_name == 'schedule' || inputs.chained }}
+    steps:
+      - name: Wait for this run's hour
+        run: |
+          nb="${{ inputs.not_before || '0' }}"; now=$(date +%s)
+          if [ "$nb" -gt "$now" ]; then echo "waiting $((nb - now))s"; sleep $((nb - now)); fi
+          echo "STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Queue the next hourly run now (a crash in this run can't break the chain)
+        if: ${{ env.CHAIN == 'true' && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run experiment-v2.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f chained=true -f not_before="$((STARTED_AT + 3600))"
+
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Restore v2 memory
+        uses: actions/cache/restore@v5
+        with:
+          path: .v2state
+          key: v2-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: v2-state-
+
+      - name: Discover (dry run)
+        if: ${{ inputs.dry_run }}
+        run: python -m v2.discover --no-sheet --no-save --target 20 --max-pages 120
+
+      - name: Discover
+        if: ${{ !inputs.dry_run }}
+        run: >
+          python -m v2.discover
+          ${{ github.event_name == 'schedule' && '--min-gap-minutes 30' || '' }}
+
+      - name: Verify
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        run: python -m v2.verify
+
+      - name: Recheck a batch of qualified creators
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        run: python -m v2.recheck
+
+      - name: Save v2 memory
+        if: ${{ always() && !inputs.dry_run }}
+        uses: actions/cache/save@v5
+        with:
+          path: .v2state
+          key: v2-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Run Log and alerts
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        run: python -m v2.runlog
