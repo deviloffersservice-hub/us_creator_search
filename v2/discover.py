@@ -150,7 +150,10 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             slugs, names, posts = sheet.known_creators()
             known_slugs |= slugs
             known_names |= names
-            sheet_posts += posts
+            if sheet is v2:
+                # Only v2's own posts as seeds: the main sheet's posts lead into the clusters v1 has
+                # already harvested, where nearly every related person is already known.
+                sheet_posts += posts
         for row in qual.rows():
             m = PROFILE_RE.search(row.get("Profile URL", ""))
             if m:
@@ -201,7 +204,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     texts: dict[str, list[str]] = defaultdict(list)  # every post text seen per person, for niche tagging
     visited: set[str] = set()
     via: dict[str, str] = {}
-    pages = skipped_known = 0
+    pages = skipped_known = candidate_cards = 0
     blocked = False
     turn = 0
 
@@ -248,7 +251,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         pages += 1
         lane.used += 1
         if pages % 50 == 0:
-            log.info("progress: %d pages, %d found, %d known people skipped", pages, len(found), skipped_known)
+            log.info("progress: %d pages, %d found, %d new US people seen in related posts, %d already known",
+                     pages, len(found), candidate_cards, skipped_known)
         a = page.author
         saw(a.slug, page.published, page.url, page.text)
 
@@ -262,6 +266,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                     skipped_known += 1
                 else:
                     rkind = K_CANDIDATE
+                    candidate_cards += 1
             else:
                 rkind = K_OTHER
             follow.push(r.url, rkind, depth + 1 if follow is lane else 0, r.reactions,
@@ -326,7 +331,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     left = sorted(item for lane in [*lanes.values(), general] for item in lane.leftovers() if item[3] not in visited)
     st.queue = [[url, kind, niche, reactions] for *_, url, kind, niche, reactions in left[: config.QUEUE_MAX]]
     st.current = {"run_at": fmt_time(now_ist()), "lanes": ", ".join(lane_niches), "pages": pages,
-                  "found": len(found), "fresh": fresh, "skipped_known": skipped_known, "blocked": blocked,
+                  "found": len(found), "fresh": fresh, "skipped_known": skipped_known,
+                  "candidate_cards": candidate_cards, "blocked": blocked,
                   "lane_found": lane_found, "niches": niche_counts, "discover_minutes": round((time.time() - started) / 60, 1)}
     if save_state:
         st.save()
