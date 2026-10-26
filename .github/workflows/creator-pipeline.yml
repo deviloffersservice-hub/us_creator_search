@@ -2,8 +2,10 @@ name: Creator pipeline (bulk add + verify)
 
 on:
   schedule:
-    # Every hour, at :17 past (GitHub delays jobs scheduled exactly on the hour).
+    # Every hour at :17. GitHub drops scheduled runs when it's busy, so :47 is a backup slot:
+    # a scheduled run skips the bulk add if creators were added in the last 30 minutes.
     - cron: "17 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       target:
@@ -40,7 +42,9 @@ jobs:
 
       - name: Bulk add creators
         if: ${{ !inputs.dry_run }}
-        run: python bulk_add.py --target "${{ inputs.target || '100' }}"
+        run: >
+          python bulk_add.py --target "${{ inputs.target || '100' }}"
+          ${{ github.event_name == 'schedule' && '--min-gap-minutes 30' || '' }}
 
       - name: Verify creators
         # Runs even if bulk add hit a problem, so already-added rows still get verified.
