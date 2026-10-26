@@ -22,6 +22,8 @@ LANE_MIN_SEEDS = _int("V2_LANE_MIN_SEEDS", 20)  # below this, also use older top
 PHRASES_PER_NICHE = _int("V2_PHRASES_PER_NICHE", 3)
 SEARCH_QUERIES = _int("V2_SEARCH_QUERIES", 18)
 TOPIC_SUBPAGES = _int("V2_TOPIC_SUBPAGES", 2)
+COMPANY_EVERY = _int("V2_COMPANY_EVERY", 5)  # every Nth page is a company page (fresh posts + similar companies)
+COMPANY_REVISIT_HOURS = _int("V2_COMPANY_REVISIT_HOURS", 24)
 
 # Memory of people already checked: skip re-fetching them for a while.
 SEEN_TTL_DAYS = {"small": 30, "big": 60, "nonus": 120, "company": 120, "stale": 7, "added": 3650}

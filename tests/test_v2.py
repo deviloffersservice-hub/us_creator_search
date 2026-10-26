@@ -90,3 +90,22 @@ def test_runlog_row():
                    "lane_found": {"Legal": [80, 9]}, "niches": {"Legal": 9}, "discover_minutes": 12.5})
     assert set(row) == set(HEADERS)
     assert row["Found"] == 80 and row["Blocked"] == ""
+
+
+def test_company_page_parsing_keeps_us_companies_and_posts():
+    from v2.sources import parse_company_page
+    page = """<a href="https://www.linkedin.com/posts/acme_launch-activity-7518390684312317952-cYyw?trk=x">p</a>
+    <a href="https://www.linkedin.com/company/globex?trk=similar-pages">Globex</a>
+    <a href="https://uk.linkedin.com/company/initech">Initech UK</a>"""
+    posts, companies = parse_company_page(page)
+    assert posts == ["https://www.linkedin.com/posts/acme_launch-activity-7518390684312317952-cYyw"]
+    assert companies == ["globex"]  # non-US (uk.) companies are skipped
+
+
+def test_company_queue_skips_recently_read():
+    lane = discover.Lane("Legal", 10, NOW)
+    now = time.time()
+    lane.add_company("clio", {"clio": int(now - 3600)}, now)  # read an hour ago
+    lane.add_company("ironclad", {}, now)
+    lane.add_company("ironclad", {}, now)  # no duplicates
+    assert lane.companies == ["ironclad"]

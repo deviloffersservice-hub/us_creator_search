@@ -25,11 +25,11 @@ from creator_search import niches, rules
 from creator_search import config as v1config
 from creator_search.linkedin import (Blocked, Fetcher, NotFound, activity_id_from_url, activity_time,
                                      canonical_post_url, normalize_slug, profile_url, topic_post_urls)
-from creator_search.search import recent_post_urls
 from creator_search.sheets import (BULK_HEADERS, PROFILE_RE, QUALIFIED_HEADERS, Sheet, fmt_date, fmt_time,
                                    normalize_name, now_ist, parse_time)
 
 from . import config, phrases
+from .sources import CompanyPagesBlocked, company_page, search_many_engines
 from .state import State
 
 log = logging.getLogger("v2.discover")
@@ -58,6 +58,11 @@ class Lane:
         self.heap: list[tuple] = []
         self.entry: dict[str, tuple] = {}  # url -> (rank, kind, depth, reactions, aid, niche)
         self._n = 0
+        self.companies: list[str] = []  # company pages still to read for this lane
+
+    def add_company(self, slug: str, done: dict[str, int], now: float):
+        if slug and slug not in self.companies and now - done.get(slug, 0) > config.COMPANY_REVISIT_HOURS * 3600:
+            self.companies.append(slug)
 
     def push(self, url: str, kind: int, depth: int = 0, reactions: int = 0, niche: str = "") -> bool:
         url = canonical_post_url(url)
@@ -171,7 +176,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     # Seeds: fresh niche posts from search first, then topic pages (older ones only if a lane is short).
     if use_search:
         plan = search_plan(lane_niches)
-        for phrase, urls in recent_post_urls([p for p, _ in plan]).items():
+        for phrase, urls in search_many_engines([p for p, _ in plan]).items():
             niche = dict(plan)[phrase]
             for url in urls:
                 lanes[niche].push(url, K_SEED)
@@ -195,8 +200,13 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             lanes.get(row.get("Niche"), general).push(row["Latest Post URL"], K_KNOWN, niche=row.get("Niche", ""))
     for url in sheet_posts + load_seed_file():
         general.push(url, K_SEED, niche=tag([], url))
+    tnow = time.time()
+    for key, lane in [*lanes.items(), ("", general)]:
+        for slug in st.companies.get(key, []) + (phrases.COMPANIES.get(key, []) if key else []):
+            lane.add_company(slug, st.companies_done, tnow)
     for lane in [*lanes.values(), general]:
-        log.info("lane %s: %d posts to start from", lane.niche or "general", len(lane.entry))
+        log.info("lane %s: %d posts and %d company pages to start from", lane.niche or "general",
+                 len(lane.entry), len(lane.companies))
 
     found: list[dict] = []
     decided: set[str] = set()
@@ -204,7 +214,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     texts: dict[str, list[str]] = defaultdict(list)  # every post text seen per person, for niche tagging
     visited: set[str] = set()
     via: dict[str, str] = {}
-    pages = skipped_known = candidate_cards = 0
+    pages = skipped_known = candidate_cards = company_pages = company_posts = 0
+    companies_ok = True
     blocked = False
     turn = 0
 
@@ -234,6 +245,30 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         return None
 
     while len(found) < target and pages < max_pages:
+        if companies_ok and pages and pages % config.COMPANY_EVERY == 0:
+            # Company page turn: fresh posts from a company in one of the lanes, plus similar companies.
+            order = [ln for ln in [*lanes.values(), general] if ln.companies and ln.used < ln.budget]
+            if order:
+                clane = order[(pages // config.COMPANY_EVERY) % len(order)]
+                slug = clane.companies.pop(0)
+                st.companies_done[slug] = int(time.time())
+                try:
+                    posts, similar = company_page(fetcher, slug)
+                except CompanyPagesBlocked as e:
+                    log.warning("company pages refused (%s); not using them for the rest of this run", e)
+                    companies_ok = False
+                    clane.companies.insert(0, slug)
+                    st.companies_done.pop(slug, None)
+                    continue
+                pages += 1
+                clane.used += 1
+                company_pages += 1
+                for url in posts:
+                    if clane.push(url, K_SEED):
+                        company_posts += 1
+                for other in similar:
+                    clane.add_company(other, st.companies_done, time.time())
+                continue
         nxt = next_page()
         if not nxt:
             log.info("nothing left to crawl")
@@ -269,6 +304,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                     candidate_cards += 1
             else:
                 rkind = K_OTHER
+                if ra.kind == "company" and ra.is_us:
+                    (lane if lane.niche else general).add_company(ra.slug, st.companies_done, time.time())
             follow.push(r.url, rkind, depth + 1 if follow is lane else 0, r.reactions,
                         niche=lane.niche or tag([r.text], r.url))
 
@@ -330,9 +367,14 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
 
     left = sorted(item for lane in [*lanes.values(), general] for item in lane.leftovers() if item[3] not in visited)
     st.queue = [[url, kind, niche, reactions] for *_, url, kind, niche, reactions in left[: config.QUEUE_MAX]]
+    for key, lane in [*lanes.items(), ("", general)]:
+        st.companies[key] = list(dict.fromkeys(lane.companies + st.companies.get(key, [])))[:300]
+    log.info("company pages read: %d, giving %d fresh posts to start from", company_pages, company_posts)
     st.current = {"run_at": fmt_time(now_ist()), "lanes": ", ".join(lane_niches), "pages": pages,
                   "found": len(found), "fresh": fresh, "skipped_known": skipped_known,
-                  "candidate_cards": candidate_cards, "blocked": blocked,
+                  "candidate_cards": candidate_cards, "company_pages": company_pages,
+                  "company_posts": company_posts, "company_pages_refused": not companies_ok,
+                  "blocked": blocked,
                   "lane_found": lane_found, "niches": niche_counts, "discover_minutes": round((time.time() - started) / 60, 1)}
     if save_state:
         st.save()

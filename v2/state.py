@@ -26,6 +26,8 @@ class State:
         self.queue: list[list] = data.get("queue", [])
         self.snapshots: dict[str, dict] = data.get("snapshots", {})
         self.runs: list[dict] = data.get("runs", [])
+        self.companies: dict[str, list[str]] = data.get("companies", {})  # niche ("" = general) -> slugs to visit
+        self.companies_done: dict[str, int] = data.get("companies_done", {})  # slug -> when its page was read
         self.current: dict = {}  # metrics for this run, filled in by each step
 
     @property
@@ -52,7 +54,9 @@ class State:
         tmp = self.path.with_suffix(".tmp")
         with gzip.open(tmp, "wt") as f:
             json.dump({"seen": self.seen, "queue": self.queue[: config.QUEUE_MAX], "snapshots": self.snapshots,
-                       "runs": self.runs[-200:], "current": self.current}, f, separators=(",", ":"))
+                       "runs": self.runs[-200:], "current": self.current,
+                       "companies": {k: v[:300] for k, v in self.companies.items()},
+                       "companies_done": self.companies_done}, f, separators=(",", ":"))
         tmp.replace(self.path)
 
     # --- people already checked -------------------------------------------------------------
@@ -77,5 +81,6 @@ class State:
         now = now or time.time()
         self.seen = {s: e for s, e in self.seen.items()
                      if now - e[2] <= config.SEEN_TTL_DAYS.get(e[0], 30) * 86400}
+        self.companies_done = {s: t for s, t in self.companies_done.items() if now - t <= 3 * 86400}
         keep = config.SNAPSHOT_MINUTES * 60 * 3
         self.snapshots = {s: v for s, v in self.snapshots.items() if now - v.get("t", 0) <= keep}
