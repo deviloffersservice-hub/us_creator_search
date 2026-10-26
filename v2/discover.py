@@ -75,7 +75,7 @@ class Lane:
         heapq.heappush(self.heap, (r, -reactions, -aid, self._n, url))
         return True
 
-    def pop(self, visited: set[str]) -> tuple[str, int, int] | None:
+    def pop(self, visited: set[str]) -> tuple[str, int, int, int] | None:
         while self.heap:
             r, *_, url = heapq.heappop(self.heap)
             entry = self.entry.get(url)
@@ -84,7 +84,7 @@ class Lane:
             del self.entry[url]
             if url in visited:
                 continue
-            return url, entry[1], entry[2]
+            return url, entry[1], entry[2], entry[3]
         return None
 
     def has_work(self) -> bool:
@@ -112,6 +112,13 @@ def search_plan(lane_niches: list[str]) -> list[tuple[str, str]]:
              for n in lane_niches}
     plan = [(picks[n][i], n) for i in range(config.PHRASES_PER_NICHE) for n in lane_niches if i < len(picks[n])]
     return plan[: config.SEARCH_QUERIES]
+
+
+KIND_NAMES = {K_CANDIDATE: "new person", K_SEED: "start post", K_KNOWN: "known person", K_OTHER: "non-US/company"}
+
+
+def reaction_bucket(n: int) -> str:
+    return "0-9" if n < 10 else "10-49" if n < 50 else "50-199" if n < 200 else "200+"
 
 
 def rejection_status(page) -> str | None:
@@ -217,6 +224,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     pages = skipped_known = candidate_cards = company_pages = company_posts = 0
     companies_ok = True
     blocked = False
+    outcomes: dict[str, Counter] = defaultdict(Counter)  # kind of page fetched -> what its author turned out to be
+    by_reactions: dict[str, Counter] = defaultdict(Counter)  # new-person pages: reactions bucket -> outcome
+    related_cards = related_with_followers = 0
     turn = 0
 
     def saw(slug: str, published: datetime | None, url: str, text: str = ""):
@@ -273,7 +283,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         if not nxt:
             log.info("nothing left to crawl")
             break
-        lane, url, kind, depth = nxt
+        lane, url, kind, depth, reactions = nxt
         visited.add(url)
         try:
             page = fetcher.post(url)
@@ -294,6 +304,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         follow = lane if lane.niche and depth < config.LANE_DEPTH else general
         for r in page.related:
             ra = r.author
+            related_cards += 1
+            related_with_followers += ra.followers is not None
             saw(ra.slug, r.published, r.url, r.text)
             if ra.is_person and ra.is_us:
                 if ra.slug in known_slugs or ra.slug in decided or st.skip(ra.slug):
@@ -309,20 +321,33 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             follow.push(r.url, rkind, depth + 1 if follow is lane else 0, r.reactions,
                         niche=lane.niche or tag([r.text], r.url))
 
-        if not a.is_person or not a.slug or a.slug in decided:
+        def outcome(what: str):
+            outcomes[KIND_NAMES[kind]][what] += 1
+            if kind == K_CANDIDATE:
+                by_reactions[reaction_bucket(reactions)][what] += 1
+
+        if not a.is_person or not a.slug:
+            outcome("company" if a.slug else "unreadable")
+            continue
+        if a.slug in decided:
+            outcome("seen this run")
             continue
         decided.add(a.slug)
         if a.slug in known_slugs or normalize_name(a.name) in known_names:
+            outcome("already in a sheet")
             continue
         status = rejection_status(page)
         if status or a.followers is None:
+            outcome(status or "no follower count")
             if status:
                 st.remember(a.slug, status, a.followers)
             continue
         last_seen, _ = newest.get(a.slug, (None, ""))
         if not rules.recent(last_seen, now, days=v1config.MAX_SEEN_POST_AGE_DAYS):
+            outcome("stale")
             st.remember(a.slug, "stale", a.followers)
             continue
+        outcome("added")
         st.remember(a.slug, "added", a.followers)
         st.snapshots[a.slug] = {"name": a.name, "kind": a.kind, "country": a.country, "followers": a.followers,
                                 "total_posts": page.total_posts, "url": page.url, "t": int(time.time()),
@@ -351,6 +376,13 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     for name, (used, n) in lane_found.items():
         log.info("  lane %-36s %3d pages, %3d found", name, used, n)
     log.info("niches added: %s", niche_counts)
+    for name, c in outcomes.items():
+        log.info("  pages from %-15s %4d: %s", name, sum(c.values()), dict(c.most_common()))
+    for bucket in ("0-9", "10-49", "50-199", "200+"):
+        if by_reactions[bucket]:
+            c = by_reactions[bucket]
+            log.info("  new-person posts with %-6s reactions %4d: %s", bucket, sum(c.values()), dict(c.most_common()))
+    log.info("related post cards: %d, %d of them show a follower count", related_cards, related_with_followers)
 
     if use_sheet:
         bulk.append(found)
@@ -375,6 +407,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                   "candidate_cards": candidate_cards, "company_pages": company_pages,
                   "company_posts": company_posts, "company_pages_refused": not companies_ok,
                   "blocked": blocked,
+                  "outcomes": {k: dict(v) for k, v in outcomes.items()},
+                  "by_reactions": {k: dict(v) for k, v in by_reactions.items()},
                   "lane_found": lane_found, "niches": niche_counts, "discover_minutes": round((time.time() - started) / 60, 1)}
     if save_state:
         st.save()

@@ -45,12 +45,14 @@ def company_page(fetcher, slug: str) -> tuple[list[str], list[str]]:
     return parse_company_page(r.text)
 
 
-BACKENDS = ["duckduckgo", "brave", "bing", "mojeek", "yahoo", "startpage", "google", "yandex"]
+# "auto" lets ddgs pick among its engines itself; in live runs it answered far more often than any
+# single engine. bing, google and yandex aren't available in ddgs 9.x (they silently become "auto").
+BACKENDS = ["auto", "duckduckgo", "brave", "yahoo", "startpage", "mojeek"]
 
 
 def search_many_engines(terms: list[str], per_query: int = 25) -> dict[str, list[str]]:
-    """term -> LinkedIn post URLs. Each query goes to the next engine in rotation; an engine that
-    fails twice is dropped for this run."""
+    """term -> LinkedIn post URLs. Each query tries the engines in BACKENDS order until one answers;
+    an engine that fails twice in a row is dropped for this run."""
     try:
         from ddgs import DDGS
     except ImportError:
@@ -59,13 +61,8 @@ def search_many_engines(terms: list[str], per_query: int = 25) -> dict[str, list
         logging.getLogger(noisy).setLevel(logging.WARNING)
     alive = {b: 0 for b in BACKENDS}
     out: dict[str, list[str]] = {}
-    turn = 0
     for term in terms:
-        tried = 0
-        while alive and tried < len(alive):
-            backend = list(alive)[turn % len(alive)]
-            turn += 1
-            tried += 1
+        for backend in list(alive):
             try:
                 results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en", timelimit="w",
                                       max_results=per_query, backend=backend)
@@ -74,6 +71,7 @@ def search_many_engines(terms: list[str], per_query: int = 25) -> dict[str, list
                 urls = []
                 log.info("search %r on %s failed (%s)", term, backend, str(e)[:80])
             if urls:
+                alive[backend] = 0
                 out[term] = urls
                 log.info("search %r on %s -> %d posts", term, backend, len(urls))
                 time.sleep(2)

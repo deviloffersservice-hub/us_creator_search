@@ -109,3 +109,39 @@ def test_company_queue_skips_recently_read():
     lane.add_company("ironclad", {}, now)
     lane.add_company("ironclad", {}, now)  # no duplicates
     assert lane.companies == ["ironclad"]
+
+
+def test_discover_run_offline_reports_outcomes(tmp_path, monkeypatch):
+    """A tiny fake LinkedIn: one start post whose related posts lead to a creator, a small account
+    and a non-US account. Discovery should add only the creator and count why the others failed."""
+    from creator_search.linkedin import RelatedPost
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    now = datetime.now(timezone.utc)
+
+    def post(slug, followers, country="www", related=()):
+        url = f"https://www.linkedin.com/posts/{slug}_x-activity-{int(now.timestamp() * 1000) << 22 | len(slug)}-ab"
+        page = PostPage(url=url, author=Author(slug.title(), slug, "in", country, followers),
+                        published=now - timedelta(days=1), total_posts=100, text="hiring recruiting talent")
+        page.related = [RelatedPost(url=p.url, activity_id=None, author=p.author, reactions=r) for p, r in related]
+        return page
+
+    creator, small, foreign = post("creator", 20000), post("tiny", 800), post("abroad", 30000, "uk")
+    start = post("start", 400000, related=[(creator, 120), (small, 3), (foreign, 50)])
+    pages = {p.url: p for p in (creator, small, foreign, start)}
+
+    class FakeFetcher:
+        def post(self, url):
+            return pages[canonical(url)]
+
+    from creator_search.linkedin import canonical_post_url as canonical
+    monkeypatch.setattr(discover, "Fetcher", FakeFetcher)
+    monkeypatch.setattr(discover, "topic_post_urls", lambda *a, **k: [start.url])
+    monkeypatch.setattr(discover, "company_page", lambda *a, **k: ([], []))
+    monkeypatch.setattr(discover, "load_seed_file", lambda: [])
+    monkeypatch.setattr(config, "COMPANY_EVERY", 10**6)
+    assert discover.run(target=5, max_pages=10, use_sheet=False, use_search=False) == 0
+    st = State.load()
+    assert st.seen["creator"][0] == "added" and st.seen["tiny"][0] == "small"
+    assert st.current["found"] == 1
+    assert st.current["outcomes"]["new person"] == {"added": 1, "small": 1}
+    assert st.current["by_reactions"]["50-199"] == {"added": 1}
