@@ -96,6 +96,11 @@ jobs:
         continue-on-error: true  # memory must still be saved; the alert is re-raised below
         run: python -m v2.runlog
 
+      - name: Audit the sheet (read-only; for the daily health check)
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        continue-on-error: true
+        run: python -m v2.audit
+
       - name: Save v2 memory
         if: ${{ always() && !inputs.dry_run }}
         uses: actions/cache/save@v5

@@ -262,3 +262,22 @@ def test_posts_of_known_creators_are_crawled_last(tmp_path, monkeypatch):
     monkeypatch.setattr(discover, "load_seed_file", lambda: [])
     discover.run(target=5, max_pages=5, use_sheet=False, use_search=False, save_state=False)
     assert fetched == [fresh]
+
+
+def test_audit_finds_duplicates_rule_breakers_and_stuck_rows():
+    from v2 import audit
+    now = datetime.now(timezone.utc)
+    rows = [
+        {"_row": 2, "Profile URL": "https://www.linkedin.com/in/a", "Status": "Active", "Followers": "20,000"},
+        {"_row": 3, "Profile URL": "https://linkedin.com/in/a/", "Status": "Active", "Followers": "150000"},
+        {"_row": 4, "Profile URL": "https://www.linkedin.com/in/b", "Status": "Qualified", "Followers": "9000",
+         "Location Signal": "uk.linkedin.com"},
+        {"_row": 5, "Profile URL": "https://www.linkedin.com/in/c", "Status": "Pending",
+         "Added At (IST)": fmt_time(now - timedelta(hours=5))},
+        {"_row": 6, "Profile URL": "https://www.linkedin.com/in/d", "Status": "Pending",
+         "Added At (IST)": fmt_time(now - timedelta(minutes=20))},
+    ]
+    assert audit.duplicates(rows) == {"a": [2, 3]}
+    assert audit.rule_breakers(rows, "Status", {"Active"}) == [(3, "followers 150,000")]
+    assert audit.rule_breakers(rows, "Status", {"Qualified"}) == [(4, "location uk.linkedin.com")]
+    assert audit.stuck_pending(rows, now) == [5]
