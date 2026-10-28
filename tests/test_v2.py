@@ -237,3 +237,28 @@ def test_visited_posts_are_not_queued_again():
     lane = discover.Lane("Legal", 100, NOW, visited)
     assert not lane.push(_post("deleted-post", 1), discover.K_CANDIDATE)
     assert not lane.has_work()
+
+
+def test_posts_of_known_creators_are_crawled_last(tmp_path, monkeypatch):
+    """Queued or sheet posts whose author is already in a sheet must not compete with new people."""
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    now = datetime.now(timezone.utc)
+    aid = int(now.timestamp() * 1000) << 22
+    known = f"https://www.linkedin.com/posts/known-creator_x-activity-{aid + 1}-ab"  # newer: would win a tie
+    fresh = f"https://www.linkedin.com/posts/new-person_x-activity-{aid}-ab"
+    st = State()
+    st.queue = [[known, discover.K_SEED, "", 0], [fresh, discover.K_CANDIDATE, "", 0]]
+    st.seen["known-creator"] = ["added", 20000, int(time.time())]
+    st.save()
+    fetched = []
+
+    class StopFetcher:
+        def post(self, url):
+            fetched.append(url)
+            raise discover.Blocked("stop after the first page")
+
+    monkeypatch.setattr(discover, "Fetcher", StopFetcher)
+    monkeypatch.setattr(discover, "topic_post_urls", lambda *a, **k: [])
+    monkeypatch.setattr(discover, "load_seed_file", lambda: [])
+    discover.run(target=5, max_pages=5, use_sheet=False, use_search=False, save_state=False)
+    assert fetched == [fresh]

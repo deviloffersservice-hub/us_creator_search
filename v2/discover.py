@@ -264,8 +264,11 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                 lane.push(url, K_SEED)
     for item in st.queue:
         url, kind, niche, reactions = (item + ["", 0])[:4]
+        kind = int(kind)
+        if kind in (K_SEED, K_CANDIDATE) and slug_from_post_url(url) in known_slugs:
+            kind = K_KNOWN  # queued before its author was added to a sheet
         target_lane = lanes.get(niche, general)
-        target_lane.push(url, int(kind), reactions=int(reactions or 0), niche=niche)
+        target_lane.push(url, kind, reactions=int(reactions or 0), niche=niche)
     for niche, lane in lanes.items():
         topics = list(niches.NICHES[niche]["topics"])
         if len(lane.entry) < config.LANE_MIN_SEEDS and topics:
@@ -274,7 +277,11 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     for row in qualified_rows.values():
         if row.get("Latest Post URL"):
             lanes.get(row.get("Niche"), general).push(row["Latest Post URL"], K_KNOWN, niche=row.get("Niche", ""))
-    for url in sheet_posts + load_seed_file():
+    # Posts of creators already in a sheet are only worth crawling for their related posts, after
+    # new people and fresh start posts (thousands of them otherwise crowd out everything else).
+    for url in sheet_posts:
+        general.push(url, K_KNOWN, niche=tag([], url))
+    for url in load_seed_file():
         general.push(url, K_SEED, niche=tag([], url))
     tnow = time.time()
     for key, lane in [*lanes.items(), ("", general)]:

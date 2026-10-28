@@ -38,7 +38,7 @@ SNAPSHOT_MINUTES = _int("V2_SNAPSHOT_MINUTES", 60)  # verify reuses page data th
 WATCH_FAST_HOURS = _int("V2_WATCH_FAST_HOURS", 2)
 WATCH_FAST_FOR_HOURS = _int("V2_WATCH_FAST_FOR_HOURS", 48)
 WATCH_SLOW_HOURS = _int("V2_WATCH_SLOW_HOURS", 4)
-WATCH_MAX = _int("V2_WATCH_MAX", 300)  # Watching rows due for a re-check, per run
+WATCH_MAX = _int("V2_WATCH_MAX", 450)  # Watching rows due for a re-check, per run
 
 RECHECK_PER_RUN = _int("V2_RECHECK_PER_RUN", 150)
 ALERT_AFTER_EMPTY_RUNS = _int("V2_ALERT_AFTER_EMPTY_RUNS", 3)
