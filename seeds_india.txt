@@ -2,3 +2,10 @@
 # Optional: web searches (India region) and Indian company pages give the first runs their start
 # posts, and after that the crawl queue and the India tabs keep discovery going. Add a fresh post
 # by an Indian creator here to steer the crawl towards a niche.
+https://www.linkedin.com/posts/sanjeet1107_healthcare-wellness-yuvrajsingh-activity-7522971627354062848-zToF
+https://www.linkedin.com/posts/balasundaram-r-6926146_create-a-culture-of-addressing-policyholder-activity-7522667039153418240-YAU6
+https://www.linkedin.com/posts/ca-nitin-pathak_mutualfunds-sip-wealthcreation-activity-7523012432089313282-Es4E
+https://www.linkedin.com/posts/arijitbhattacharyya_entrepreneurship-cell-iit-kharagpur-presents-activity-7523623432530587648-qoTa
+https://www.linkedin.com/posts/siddhartha-jain-52827b100_day-445-post-445-date-3rd-november-2026-activity-7523451185853562880-ktBl
+https://www.linkedin.com/posts/sp2124_indianautomotive-automotiveleadership-activity-7522905033613488128-a1gM
+https://www.linkedin.com/posts/iimmumbai-alumni_iimmumbai-sansmaran26-distinguishedalumnusawards-activity-7523640299823243267-RwIW
