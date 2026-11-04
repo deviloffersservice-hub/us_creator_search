@@ -101,7 +101,7 @@ From that moment, without anyone doing anything:
   in "watch" mode, which only re-checks the Watching rows (they can still qualify), and
   `recheck.yml` keeps the US Qualified statuses up to date twice a day.
 - **India:** `india-v2.yml` starts its own hourly chain. Same pipeline, with these rules: LinkedIn
-  shows the creator as India-based (`in.linkedin.com`), 10,000-200,000 followers, a post in the
+  shows the creator as India-based (`in.linkedin.com`), 5,000-200,000 followers, a post in the
   last 14 days. It writes to the `India Bulk`, `India Qualified` and `India Run Log` tabs of the
   same sheet (created on the first run) and re-checks India Qualified rows every hour. It uses
   India search terms and Indian company pages (`v2/phrases.py`, `seeds_india.txt`).

@@ -1,7 +1,7 @@
 name: Creator pipeline v2 (India)
 
 # The same v2 pipeline as experiment-v2.yml, looking for Indian creators: LinkedIn shows them as
-# India-based (in.linkedin.com), 10,000-200,000 followers, a post in the last 14 days. They go to the
+# India-based (in.linkedin.com), 5,000-200,000 followers, a post in the last 14 days. They go to the
 # "India Bulk", "India Qualified" and "India Run Log" tabs of the main sheet; its memory is a
 # separate Actions cache ("india-state-").
 #
@@ -64,7 +64,7 @@ jobs:
       # The India market.
       MARKET_NAME: India
       MARKET_SUBDOMAIN: in
-      MIN_FOLLOWERS: "10000"
+      MIN_FOLLOWERS: "5000"
       MAX_FOLLOWERS: "200000"
       SEARCH_REGION: in-en
       SEARCH_TIMELIMIT: m  # older start posts show related posts; India has few fresh ones
