@@ -68,6 +68,8 @@ jobs:
       MAX_FOLLOWERS: "200000"
       SEARCH_REGION: in-en
       SEARCH_TIMELIMIT: m  # older start posts show related posts; India has few fresh ones
+      MAX_SEEN_POST_AGE_DAYS: "90"  # follow Indian people whose seen post is up to 90 days old; they still
+                                    # only qualify after posting within 14 days (via Watching)
       SEEDS_FILE: seeds_india.txt
       V2_BULK_TAB: India Bulk
       V2_QUALIFIED_TAB: India Qualified
