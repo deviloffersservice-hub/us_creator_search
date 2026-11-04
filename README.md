@@ -106,6 +106,17 @@ From that moment, without anyone doing anything:
   same sheet (created on the first run) and re-checks India Qualified rows every hour. It uses
   India search terms and Indian company pages (`v2/phrases.py`, `seeds_india.txt`).
 
+India has far fewer creators in range than the US, so its crawl is tuned to keep going:
+
+- LinkedIn shows no related posts on a post under ~3 days old. Such posts are remembered and read
+  again once they are 3.5 days old (both markets; `V2_RELATED_AFTER_DAYS`).
+- India's web searches cover the past month (`SEARCH_TIMELIMIT: m`), not the past week.
+- India follows people whose newest seen post is up to 90 days old (`MAX_SEEN_POST_AGE_DAYS: 90`).
+  They still only qualify after posting within 14 days: until then they wait in Watching.
+
+On 4 Nov a 120-page India test run found 20 creators in 33 pages (13 had posted in the last 14
+days); before these changes it found 0-7 in 90-120 pages.
+
 The market is set by environment variables, so the same code serves both: `MARKET_NAME`,
 `MARKET_SUBDOMAIN`, `MIN_FOLLOWERS`, `MAX_FOLLOWERS`, `SEARCH_REGION`, `SEEDS_FILE`, `V2_BULK_TAB`,
 `V2_QUALIFIED_TAB`, `V2_RUN_LOG_TAB`, `V2_NAME_TABS_PREFIX`. The switch time is `SWITCH_AT` /
