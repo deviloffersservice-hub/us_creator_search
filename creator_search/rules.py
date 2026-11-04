@@ -18,15 +18,15 @@ def recent(dt: datetime | None, now: datetime | None = None, days: int | None = 
 
 
 def profile_failures(page: PostPage, expected_slug: str | None = None) -> list[str]:
-    """Everything except activity. Empty list == person, US, follower count in range."""
+    """Everything except activity. Empty list == person, in the market, follower count in range."""
     a = page.author
     reasons = []
     if expected_slug and a.slug and a.slug != expected_slug:
         reasons.append(f"post author is {a.slug}, not {expected_slug}")
     if not a.is_person:
         reasons.append(f"not a personal profile ({a.kind or 'unknown'})")
-    if not a.is_us:
-        reasons.append(f"not US-based (LinkedIn domain: {a.country or 'unknown'})")
+    if not a.in_market:
+        reasons.append(f"not {config.MARKET_NAME}-based (LinkedIn domain: {a.country or 'unknown'})")
     if a.followers is None:
         reasons.append("follower count not shown")
     elif not followers_ok(a.followers):
@@ -42,4 +42,6 @@ def newer(a: datetime | None, b: datetime | None) -> datetime | None:
 
 def location_signal(page: PostPage) -> str:
     c = page.author.country
-    return "US (www.linkedin.com)" if c == config.US_SUBDOMAIN else f"{c}.linkedin.com"
+    if c == config.MARKET_SUBDOMAIN:
+        return f"{config.MARKET_NAME} ({c}.linkedin.com)"
+    return f"{c}.linkedin.com"

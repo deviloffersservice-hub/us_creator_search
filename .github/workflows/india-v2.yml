@@ -1,0 +1,146 @@
+name: Creator pipeline v2 (India)
+
+# The same v2 pipeline as experiment-v2.yml, looking for Indian creators: LinkedIn shows them as
+# India-based (in.linkedin.com), 10,000-200,000 followers, a post in the last 14 days. They go to the
+# "India Bulk", "India Qualified" and "India Run Log" tabs of the main sheet; its memory is a
+# separate Actions cache ("india-state-").
+#
+# It starts on 11 Nov 2026 at 10:00 IST (START_AT), when the US finder stops. Before that only dry
+# runs do anything. From then on each run queues the next one an hour later, like the US chain;
+# the 3-hourly cron restarts the chain if it ever breaks (a duplicate pending run simply replaces
+# the other one, so there is never more than one chain).
+
+on:
+  workflow_dispatch:
+    inputs:
+      chained:
+        description: "Keep going every hour after this run"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Dry run: crawl and print results, don't write the sheet or state"
+        type: boolean
+        default: false
+      not_before:
+        description: "Internal: unix time this run should wait for (set by the previous run)"
+        default: "0"
+  schedule:
+    - cron: "30,50 4 11 11 *"  # 10:00 and 10:20 IST on 11 Nov: the first run (GitHub drops some)
+    - cron: "23 */3 * * *"     # backup: restarts the hourly chain if it ever stops
+
+concurrency:
+  group: india-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write  # lets a run queue the next one
+
+env:
+  START_AT: "1794371400"  # 2026-11-11 10:00 IST
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ] || [ "$(date +%s)" -ge "$START_AT" ]; then go=true; else go=false; fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          echo "start: $(TZ=Asia/Kolkata date -d @"$START_AT"), go: $go"
+
+  run:
+    needs: gate
+    if: ${{ needs.gate.outputs.go == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      PYTHONUNBUFFERED: "1"
+      MAX_CONSECUTIVE_BLOCKS: "3"
+      CHAIN: ${{ github.event_name == 'schedule' || inputs.chained }}
+      # The India market.
+      MARKET_NAME: India
+      MARKET_SUBDOMAIN: in
+      MIN_FOLLOWERS: "10000"
+      MAX_FOLLOWERS: "200000"
+      SEARCH_REGION: in-en
+      SEEDS_FILE: seeds_india.txt
+      V2_BULK_TAB: India Bulk
+      V2_QUALIFIED_TAB: India Qualified
+      V2_RUN_LOG_TAB: India Run Log
+      V2_NAME_TABS_PREFIX: "India "
+      # One sheet only: no experiment sheet to read or copy from.
+      EXPERIMENT_SHEET_ID: 1GdZxogrK0wYMXcWGC3tbelUrEZE39foweCHNBbK-6-w
+    steps:
+      - name: Wait for this run's hour
+        run: |
+          nb="${{ inputs.not_before || '0' }}"; now=$(date +%s)
+          if [ "$nb" -gt "$now" ]; then echo "waiting $((nb - now))s"; sleep $((nb - now)); fi
+          echo "STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Queue the next hourly run now (a crash in this run can't break the chain)
+        if: ${{ env.CHAIN == 'true' && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run india-v2.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f chained=true -f not_before="$((STARTED_AT + 3600))"
+
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Restore India memory
+        uses: actions/cache/restore@v5
+        with:
+          path: .v2state
+          key: india-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: india-state-
+
+      - name: Discover (dry run)
+        if: ${{ inputs.dry_run }}
+        run: python -m v2.discover --no-sheet --no-save --target 20 --max-pages 120
+
+      - name: Discover
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        run: >
+          python -m v2.discover
+          ${{ github.event_name == 'schedule' && '--min-gap-minutes 30' || '' }}
+
+      - name: Verify
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        run: python -m v2.verify
+
+      - name: Recheck a batch of qualified creators
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        run: python -m v2.recheck
+
+      - name: Run Log and alerts
+        id: runlog
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        continue-on-error: true  # memory must still be saved; the alert is re-raised below
+        run: python -m v2.runlog
+
+      - name: Audit the sheet (read-only; for the daily health check)
+        if: ${{ !cancelled() && !inputs.dry_run }}
+        continue-on-error: true
+        run: python -m v2.audit
+
+      - name: Save India memory
+        if: ${{ always() && !inputs.dry_run }}
+        uses: actions/cache/save@v5
+        with:
+          path: .v2state
+          key: india-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Alert (fails the run so GitHub emails you)
+        if: ${{ steps.runlog.outcome == 'failure' }}
+        run: |
+          echo "::error::The India finder was blocked by LinkedIn or found nobody for several runs. See the India Run Log tab."
+          exit 1

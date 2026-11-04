@@ -11,6 +11,7 @@ import logging
 import re
 import time
 
+from creator_search import config
 from creator_search.linkedin import POST_URL_RE, canonical_post_url
 
 log = logging.getLogger("v2.sources")
@@ -19,9 +20,9 @@ COMPANY_RE = re.compile(r"https://([a-z]{2,3})\.linkedin\.com/company/([^\"?&/#\
 
 
 def parse_company_page(page: str) -> tuple[list[str], list[str]]:
-    """-> (recent post URLs, slugs of US companies linked from the page, e.g. 'similar pages')."""
+    """-> (recent post URLs, slugs of the market's companies linked from the page, e.g. 'similar pages')."""
     posts = [canonical_post_url(u) for u in POST_URL_RE.findall(page)]
-    companies = [slug for sub, slug in COMPANY_RE.findall(page) if sub == "www"]
+    companies = [slug for sub, slug in COMPANY_RE.findall(page) if sub == config.MARKET_SUBDOMAIN]
     return list(dict.fromkeys(posts)), list(dict.fromkeys(companies))
 
 
@@ -93,7 +94,7 @@ class Searcher:
         failed = []
         for backend in list(self.fails):
             try:
-                results = self._ddgs().text(f"site:linkedin.com/posts {term}", region="us-en", timelimit="w",
+                results = self._ddgs().text(f"site:linkedin.com/posts {term}", region=config.SEARCH_REGION, timelimit="w",
                                             max_results=self.per_query, backend=backend)
                 urls = [canonical_post_url(r["href"]) for r in results if POST_URL_RE.match(r.get("href", ""))]
             except Exception as e:  # blocked, captcha, timeout or no results

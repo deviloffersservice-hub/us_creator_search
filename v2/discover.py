@@ -1,4 +1,4 @@
-"""v2 discovery: find new US LinkedIn creators and append them to the Bulk tab.
+"""v2 discovery: find new LinkedIn creators in the market (US or India, see config.MARKET_NAME) and append them to the Bulk tab.
 
 Same idea as v1's bulk_add.py (logged-out public post pages, niche lanes, related posts), plus:
   * memory of people already checked (too small, too big, not US, no recent post) so their
@@ -127,7 +127,7 @@ def tag(texts: list[str], url: str = "") -> str:
 
 
 def load_seed_file() -> list[str]:
-    path = Path(__file__).resolve().parent.parent / "seeds.txt"
+    path = Path(__file__).resolve().parent.parent / v1config.SEEDS_FILE
     if not path.exists():
         return []
     return [ln.strip() for ln in path.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
@@ -153,7 +153,7 @@ def search_plan(lane_niches: list[str], stats: dict[str, list[int]] | None = Non
     return plan[: config.SEARCH_QUERIES]
 
 
-KIND_NAMES = {K_CANDIDATE: "new person", K_SEED: "start post", K_KNOWN: "known person", K_OTHER: "non-US/company"}
+KIND_NAMES = {K_CANDIDATE: "new person", K_SEED: "start post", K_KNOWN: "known person", K_OTHER: "out-of-market/company"}
 
 
 def card_status(followers: int | None) -> str | None:
@@ -176,7 +176,7 @@ def rejection_status(page) -> str | None:
     a = page.author
     if not a.is_person:
         return "company"
-    if not a.is_us:
+    if not a.in_market:
         return "nonus"
     if a.followers is None:
         return None
@@ -211,11 +211,11 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                 return 0
         for sheet_id in dict.fromkeys([config.V2_SHEET_ID, config.MAIN_SHEET_ID, config.EXPERIMENT_SHEET_ID]):
             sheet = out if sheet_id == config.V2_SHEET_ID else Sheet(sheet_id)
-            slugs, names, posts = sheet.known_creators()
+            slugs, names, posts = sheet.known_creators(name_prefix=config.NAME_TABS_PREFIX)
             known_slugs |= slugs
             known_names |= names
-            if sheet_id == config.EXPERIMENT_SHEET_ID:
-                sheet_posts += posts
+            if sheet_id == config.EXPERIMENT_SHEET_ID and sheet_id != config.V2_SHEET_ID:
+                sheet_posts += posts  # (the India run sets it to the main sheet: no US posts as seeds)
         # Only posts v2 itself found are seeds (rows with "Found Via"): v1's posts lead into the
         # clusters it has already harvested, where nearly every related person is already known.
         sheet_posts += [r["Source Post URL"] for r in bulk.rows() if r.get("Found Via") and r.get("Source Post URL")]
@@ -380,7 +380,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         pages += 1
         lane.used += 1
         if pages % 50 == 0:
-            log.info("progress: %d pages, %d found, %d new US people seen in related posts, %d already known",
+            log.info("progress: %d pages, %d found, %d new in-market people seen in related posts, %d already known",
                      pages, len(found), candidate_cards, skipped_known)
         a = page.author
         saw(a.slug, page.published, page.url, page.text)
@@ -392,7 +392,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             related_with_followers += ra.followers is not None
             saw(ra.slug, r.published, r.url, r.text)
             likely = False
-            if ra.is_person and ra.is_us:
+            if ra.is_person and ra.in_market:
                 if ra.slug in known_slugs or ra.slug in decided or st.skip(ra.slug):
                     rkind = K_KNOWN
                     skipped_known += 1
@@ -409,7 +409,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                         card_followers[ra.slug] = ra.followers
             else:
                 rkind = K_OTHER
-                if ra.kind == "company" and ra.is_us:
+                if ra.kind == "company" and ra.in_market:
                     (lane if lane.niche else general).add_company(ra.slug, st.companies_done, time.time())
             follow.push(r.url, rkind, depth + 1 if follow is lane else 0, r.reactions,
                         niche=lane.niche or tag([r.text], r.url), likely=likely)
@@ -425,7 +425,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         if a.slug in decided:
             outcome("seen this run")
             continue
-        if a.followers is None and a.is_us:
+        if a.followers is None and a.in_market:
             outcome("no follower count")  # unreadable page: another post of theirs may still work
             continue
         decided.add(a.slug)

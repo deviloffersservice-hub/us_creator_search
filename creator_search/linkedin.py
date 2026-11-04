@@ -94,7 +94,7 @@ class Author:
     name: str = ""
     slug: str = ""
     kind: str = ""  # "in" for people, "company" etc. otherwise
-    country: str = ""  # subdomain of the author's public URL: "www" == US
+    country: str = ""  # subdomain of the author's public URL: "www" == US, "in" == India
     followers: int | None = None
 
     @property
@@ -102,8 +102,9 @@ class Author:
         return self.kind == "in"
 
     @property
-    def is_us(self) -> bool:
-        return self.country == config.US_SUBDOMAIN
+    def in_market(self) -> bool:
+        """Lives in the market this run looks for (config.MARKET_SUBDOMAIN)."""
+        return self.country == config.MARKET_SUBDOMAIN
 
 
 @dataclass

@@ -93,6 +93,24 @@ Qualified tab up to date.
 - Service account: `creator-bot@creator-search-962321.iam.gserviceaccount.com`. It needs **Editor**
   access on the sheet, and its JSON key goes in the `GOOGLE_SERVICE_ACCOUNT_JSON` repo secret.
 
+## Switch to India (11 Nov 2026, 10:00 IST)
+
+From that moment, without anyone doing anything:
+
+- **US:** no new US creators and no hourly chain. `experiment-v2.yml` keeps running every 4 hours
+  in "watch" mode, which only re-checks the Watching rows (they can still qualify), and
+  `recheck.yml` keeps the US Qualified statuses up to date twice a day.
+- **India:** `india-v2.yml` starts its own hourly chain. Same pipeline, with these rules: LinkedIn
+  shows the creator as India-based (`in.linkedin.com`), 10,000-200,000 followers, a post in the
+  last 14 days. It writes to the `India Bulk`, `India Qualified` and `India Run Log` tabs of the
+  same sheet (created on the first run) and re-checks India Qualified rows every hour. It uses
+  India search terms and Indian company pages (`v2/phrases.py`, `seeds_india.txt`).
+
+The market is set by environment variables, so the same code serves both: `MARKET_NAME`,
+`MARKET_SUBDOMAIN`, `MIN_FOLLOWERS`, `MAX_FOLLOWERS`, `SEARCH_REGION`, `SEEDS_FILE`, `V2_BULK_TAB`,
+`V2_QUALIFIED_TAB`, `V2_RUN_LOG_TAB`, `V2_NAME_TABS_PREFIX`. The switch time is `SWITCH_AT` /
+`START_AT` in the two workflows.
+
 ## Setup (one time, about 10 minutes)
 
 ### 1. Create a Google service account (free)

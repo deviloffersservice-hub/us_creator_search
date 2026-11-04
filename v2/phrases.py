@@ -3,7 +3,7 @@
 More phrases per niche means a lane still gets fresh starting posts when the search engine
 refuses one query.
 """
-from creator_search import niches
+from creator_search import config, niches
 
 EXTRA: dict[str, list[str]] = {
     "HR & People Ops": ["HR director", "employee experience", "CHRO", "workplace culture"],
@@ -44,14 +44,55 @@ EXTRA: dict[str, list[str]] = {
 }
 
 
+# India-style search terms, used before the general ones when MARKET_NAME is India.
+EXTRA_INDIA: dict[str, list[str]] = {
+    "HR & People Ops": ["HR leader India", "people practices India", "HR Bengaluru", "CHRO India"],
+    "Recruiting & Talent Acquisition": ["hiring India", "recruiter Bengaluru", "campus hiring", "naukri job tips"],
+    "Venture Capital & Investors": ["Indian VC", "angel investor India", "startup funding India", "Shark Tank India"],
+    "Founders & Startups": ["Indian startup founder", "Bengaluru startup", "D2C founder India", "startup India"],
+    "Software Engineering": ["software engineer India", "SDE interview", "Bengaluru tech", "DSA tips"],
+    "AI & Machine Learning": ["AI India", "GenAI India", "AI engineer Bengaluru", "Indian AI startup"],
+    "Data & Analytics": ["data analyst India", "data science India", "analytics Bengaluru", "data engineer India"],
+    "Cybersecurity": ["cybersecurity India", "CISO India", "cyber fraud India", "security engineer India"],
+    "Product Management": ["product manager India", "PM Bengaluru", "product management India", "APM India"],
+    "Design & UX": ["UX designer India", "product design India", "UI UX Bengaluru", "design India"],
+    "Corporate Finance & Accounting": ["chartered accountant", "CA India", "GST", "CFO India"],
+    "Investing & Personal Finance": ["mutual funds", "stock market India", "SIP investing", "personal finance India"],
+    "Banking & Fintech": ["fintech India", "UPI", "banking India", "NBFC"],
+    "Marketing": ["marketing India", "D2C marketing", "brand marketing India", "growth marketing India"],
+    "Sales": ["B2B sales India", "sales leader India", "SaaS sales India", "inside sales"],
+    "Customer Success & Experience": ["customer success India", "customer experience India", "CX India"],
+    "Leadership & Management": ["leadership India", "CEO India", "managing teams India", "Indian leader"],
+    "Career & Job Search": ["career advice India", "freshers jobs", "placement tips", "job search India"],
+    "Consulting & Strategy": ["consulting India", "strategy consultant India", "management consultant India"],
+    "Operations & Supply Chain": ["supply chain India", "logistics India", "operations India", "manufacturing India"],
+    "Project Management": ["project manager India", "PMP India", "scrum master India", "agile India"],
+    "Healthcare & Medicine": ["doctor India", "healthcare India", "AIIMS", "healthtech India"],
+    "Science & Research": ["research India", "IIT research", "ISRO", "IISc"],
+    "Education & Training": ["edtech India", "UPSC", "teacher India", "IIM"],
+    "Real Estate": ["real estate India", "property Mumbai", "real estate Bengaluru", "RERA"],
+    "Legal": ["lawyer India", "advocate", "legal India", "Supreme Court of India"],
+    "Retail & E-commerce": ["ecommerce India", "D2C brand", "quick commerce", "retail India"],
+    "Hospitality, Travel & Events": ["travel India", "hospitality India", "events India", "hotel India"],
+    "Sustainability & ESG": ["sustainability India", "ESG India", "climate India", "renewable energy India"],
+    "Writing & Content Creation": ["content creator India", "writer India", "storytelling India", "creator India"],
+    "Communication & Soft Skills": ["communication skills India", "public speaking India", "soft skills India"],
+    "Productivity & Future of Work": ["productivity India", "work life balance India", "hybrid work India"],
+    "Wellness & Mental Health": ["mental health India", "wellness India", "burnout India", "therapist India"],
+    "Personal Branding & LinkedIn Growth": ["LinkedIn creator India", "personal brand India", "LinkedIn India", "ghostwriter India"],
+    "DEI & Social Impact": ["women in leadership India", "social impact India", "NGO India", "inclusion India"],
+}
+
+
 def for_niche(niche: str) -> list[str]:
     base = niches.NICHES.get(niche, {}).get("search", [])
-    return list(dict.fromkeys(base + EXTRA.get(niche, [])))
+    local = EXTRA_INDIA.get(niche, []) if config.MARKET_NAME == "India" else []
+    return list(dict.fromkeys(local + base + EXTRA.get(niche, [])))
 
 
-# Starting US companies per niche (public company pages list their latest posts plus "similar
+# Starting companies per niche (public company pages list their latest posts plus "similar
 # pages", which lead to more companies in the same field). Wrong or moved slugs just get skipped.
-COMPANIES: dict[str, list[str]] = {
+COMPANIES_US: dict[str, list[str]] = {
     "HR & People Ops": ["rippling", "bamboohr", "lattice", "workday", "cultureamp"],
     "Recruiting & Talent Acquisition": ["greenhouse-software", "lever", "ashbyhq", "gem-com"],
     "Venture Capital & Investors": ["a16z", "sequoia", "y-combinator", "first-round-capital"],
@@ -88,3 +129,42 @@ COMPANIES: dict[str, list[str]] = {
     "Personal Branding & LinkedIn Growth": ["taplio", "hootsuite", "buffer", "shield-app"],
     "DEI & Social Impact": ["catalyst", "leanin-org", "charitywater", "kiva"],
 }
+
+COMPANIES_INDIA: dict[str, list[str]] = {
+    "HR & People Ops": ["keka-hr", "darwinbox", "greythr", "zoho"],
+    "Recruiting & Talent Acquisition": ["naukri-com", "instahyre", "foundit-in", "apna-co"],
+    "Venture Capital & Investors": ["peak-xv-partners", "accel-india", "blume-ventures", "elevation-capital"],
+    "Founders & Startups": ["startup-india", "inc42", "yourstory", "the-ken"],
+    "Software Engineering": ["freshworks", "flipkart", "razorpay", "postman"],
+    "AI & Machine Learning": ["krutrim", "sarvam-ai", "nasscom", "analytics-india-magazine"],
+    "Data & Analytics": ["mu-sigma", "fractal-analytics", "tiger-analytics", "latentview-analytics"],
+    "Cybersecurity": ["quick-heal-technologies", "cert-in", "seqrite", "innefu-labs"],
+    "Product Management": ["swiggy-in", "zomato", "meesho", "cred-club"],
+    "Design & UX": ["canva", "zeta-suite", "sprinklr"],
+    "Corporate Finance & Accounting": ["icai", "cleartax", "zoho-books", "tally-solutions"],
+    "Investing & Personal Finance": ["zerodha", "groww", "et-money", "smallcase"],
+    "Banking & Fintech": ["razorpay", "phonepe", "paytm", "hdfc-bank"],
+    "Marketing": ["social-samosa", "afaqs", "exchange4media", "campaign-india"],
+    "Sales": ["leadsquared", "freshworks", "zoho", "chargebee"],
+    "Customer Success & Experience": ["freshdesk", "yellow-ai", "haptik", "exotel"],
+    "Leadership & Management": ["tata-group", "mahindra-group", "infosys", "economic-times"],
+    "Career & Job Search": ["naukri-com", "internshala", "unstop", "linkedin-news-india"],
+    "Consulting & Strategy": ["redseer", "mckinsey", "kpmg-india", "ey"],
+    "Operations & Supply Chain": ["delhivery", "shiprocket", "blackbuck", "rivigo"],
+    "Project Management": ["zoho", "kissflow", "tata-consultancy-services", "wipro"],
+    "Healthcare & Medicine": ["apollo-hospitals", "practo", "tata-1mg", "narayana-health"],
+    "Science & Research": ["isro", "indian-institute-of-science", "iit-bombay", "csir"],
+    "Education & Training": ["physicswallah", "unacademy", "upgrad", "byjus"],
+    "Real Estate": ["nobroker", "magicbricks", "housing-com", "dlf-limited"],
+    "Legal": ["bar-and-bench", "livelaw", "cyril-amarchand-mangaldas"],
+    "Retail & E-commerce": ["flipkart", "nykaa", "meesho", "zepto-now"],
+    "Hospitality, Travel & Events": ["makemytrip", "oyo-rooms", "ixigo", "bookmyshow"],
+    "Sustainability & ESG": ["tata-power", "adani-green-energy", "ather-energy", "ola-electric"],
+    "Writing & Content Creation": ["yourstory", "the-better-india", "scroll-in", "pratilipi"],
+    "Communication & Soft Skills": ["toastmasters-international", "ted-conferences", "josh-talks", "hindustan-times"],
+    "Productivity & Future of Work": ["zoho", "freshworks", "browserstack", "springworks"],
+    "Wellness & Mental Health": ["cult-fit", "healthifyme", "mindpeers", "amaha"],
+    "Personal Branding & LinkedIn Growth": ["linkedin-news-india", "the-ken", "yourstory"],
+    "DEI & Social Impact": ["avtar-group", "teach-for-india", "akshaya-patra", "goonj"],
+}
+COMPANIES = COMPANIES_INDIA if config.MARKET_NAME == "India" else COMPANIES_US

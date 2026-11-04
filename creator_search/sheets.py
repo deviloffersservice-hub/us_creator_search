@@ -143,12 +143,13 @@ class Sheet:
         if entries:
             tab.ws.update(values=[list(e) for e in entries], range_name="A2", value_input_option="RAW")
 
-    def known_creators(self) -> tuple[set[str], set[str], list[str]]:
+    def known_creators(self, name_prefix: str = "") -> tuple[set[str], set[str], list[str]]:
         """Every LinkedIn profile slug, creator name and post URL already anywhere in the spreadsheet.
 
         Reads formulas too, so =HYPERLINK("https://linkedin.com/in/x", "Name") cells count.
         Names come from columns headed like "Name"/"Creator" in any tab (incl. the GPT tabs).
         Post URLs (from every tab except the crawl queue) are used as crawl seeds.
+        name_prefix: only take names from tabs whose title starts with it ("" = every tab).
         """
         titles = [ws.title for ws in self.book.worksheets()]
         resp = self.book.values_batch_get([absolute_range_name(t) for t in titles],
@@ -170,7 +171,8 @@ class Sheet:
                         slugs.add(normalize_slug(m.group(1)))
                     if title != config.QUEUE_TAB:
                         posts += POST_URL_RE.findall(str(cell))
-                if name_col is not None and i > header_row and name_col < len(row):
+                if (name_col is not None and i > header_row and name_col < len(row)
+                        and title.startswith(name_prefix)):
                     cell = str(row[name_col])
                     hyper = re.search(r'HYPERLINK\([^,]+,\s*"([^"]+)"', cell, re.I)
                     n = normalize_name(hyper.group(1) if hyper else cell)

@@ -1,0 +1,4 @@
+# Starter public post URLs for the India run (one per line), like seeds.txt for the US run.
+# Optional: web searches (India region) and Indian company pages give the first runs their start
+# posts, and after that the crawl queue and the India tabs keep discovery going. Add a fresh post
+# by an Indian creator here to steer the crawl towards a niche.

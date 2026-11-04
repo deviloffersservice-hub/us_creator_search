@@ -9,7 +9,13 @@ from creator_search.config import _float, _int
 MAIN_SHEET_ID = os.environ.get("MAIN_SHEET_ID", "1GdZxogrK0wYMXcWGC3tbelUrEZE39foweCHNBbK-6-w")
 EXPERIMENT_SHEET_ID = os.environ.get("EXPERIMENT_SHEET_ID", "1zHA9Rm3tniFflGhO8w-1ZGKsXaFBiFVktasFvI-TYBk")
 V2_SHEET_ID = os.environ.get("V2_SHEET_ID", MAIN_SHEET_ID)  # where v2 writes
-BULK_TAB, QUALIFIED_TAB, RUN_LOG_TAB = "Bulk", "Qualified", "Run Log"
+BULK_TAB = os.environ.get("V2_BULK_TAB", "Bulk")
+QUALIFIED_TAB = os.environ.get("V2_QUALIFIED_TAB", "Qualified")
+RUN_LOG_TAB = os.environ.get("V2_RUN_LOG_TAB", "Run Log")
+# Duplicate check by name only looks at tabs whose title starts with this ("" = every tab). The India
+# run sets "India " so a US creator's name can't block a different Indian creator with the same name;
+# profile links are still checked against every tab.
+NAME_TABS_PREFIX = os.environ.get("V2_NAME_TABS_PREFIX", "")
 
 STATE_DIR = Path(os.environ.get("V2_STATE_DIR", ".v2state"))
 

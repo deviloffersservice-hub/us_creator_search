@@ -1,7 +1,7 @@
 """Daily re-check of the Qualified tab: are these creators still active and in range?
 
 For each creator (least recently checked first) the latest known post page is fetched:
-  * follower count is refreshed (must still be 5,000-100,000)
+  * follower count is refreshed (must still be in MIN_FOLLOWERS-MAX_FOLLOWERS)
   * the author card's total post count is compared with the last check; if it went up,
     the creator has posted since then, so their last activity is at least that recent
   * bulk_add.py also records any newer post it sees by a qualified creator
@@ -67,13 +67,13 @@ def run(limit: int) -> int:
                     if last_activity is None or prev_checked > last_activity:
                         last_activity = prev_checked
                     notes.append(f"posted since {fmt_date(prev_checked)} ({prev_posts:,} -> {page.total_posts:,} posts)")
-            if not a.is_us:
+            if not a.in_market:
                 notes.append(f"profile now on {a.country}.linkedin.com")
             if row.get("Niche") not in niches.ALL:  # tagged before the current niche list existed
                 update["Niche"] = niches.classify(f"{page.text} {niches.text_from_post_url(page.url)}")
 
-        if page and not page.author.is_us:
-            status = "Moved outside US"
+        if page and not page.author.in_market:
+            status = f"Moved outside {config.MARKET_NAME}"
         elif not rules.followers_ok(followers):
             status = f"Out of range ({followers:,} followers)" if followers is not None else "Out of range"
         elif not rules.recent(last_activity):

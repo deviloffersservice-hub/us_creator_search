@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import time
 
+from . import config
 from .linkedin import POST_URL_RE, canonical_post_url
 
 log = logging.getLogger(__name__)
@@ -30,10 +31,10 @@ def recent_post_urls(terms: list[str], per_query: int = 25) -> dict[str, list[st
             break
         try:
             try:
-                results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en",
+                results = DDGS().text(f"site:linkedin.com/posts {term}", region=config.SEARCH_REGION,
                                       timelimit="w", max_results=per_query, backend="duckduckgo")
             except Exception:  # let ddgs try its other engines once
-                results = DDGS().text(f"site:linkedin.com/posts {term}", region="us-en",
+                results = DDGS().text(f"site:linkedin.com/posts {term}", region=config.SEARCH_REGION,
                                       timelimit="w", max_results=per_query, backend="auto")
         except Exception as e:  # ddgs raises its own exception types for blocks/no results
             log.info("search %r gave nothing (%s)", term, str(e)[:120])

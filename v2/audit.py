@@ -44,7 +44,7 @@ def rule_breakers(rows: list[dict], status_col: str, good: set[str]) -> list[tup
         if f is not None and not v1config.MIN_FOLLOWERS <= f <= v1config.MAX_FOLLOWERS:
             out.append((r["_row"], f"followers {f:,}"))
         loc = r.get("Location Signal", "").strip()
-        if loc and not loc.startswith("US"):
+        if loc and not loc.startswith(v1config.MARKET_NAME):
             out.append((r["_row"], f"location {loc}"))
     return out
 

@@ -234,7 +234,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         for r in page.related:
             ra = r.author
             saw(ra.slug, r.published, r.url)
-            if ra.is_person and ra.is_us:
+            if ra.is_person and ra.in_market:
                 rkind = K_KNOWN if (ra.slug in known_slugs or ra.slug in decided) else K_CANDIDATE
             else:
                 rkind = K_OTHER

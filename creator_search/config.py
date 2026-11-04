@@ -24,7 +24,14 @@ MAX_FOLLOWERS = _int("MAX_FOLLOWERS", 100_000)
 MAX_POST_AGE_DAYS = _int("MAX_POST_AGE_DAYS", 14)
 # LinkedIn serves US members' public URLs on www.linkedin.com and everyone else on a
 # country subdomain (uk., in., ca., ...). That is the only logged-out location signal.
-US_SUBDOMAIN = "www"
+# The market a run looks for: MARKET_NAME is shown in the sheet, MARKET_SUBDOMAIN decides who
+# counts ("www" = US, "in" = India).
+MARKET_NAME = os.environ.get("MARKET_NAME", "US")
+MARKET_SUBDOMAIN = os.environ.get("MARKET_SUBDOMAIN", "www")
+# Web-search region for the starting-post searches ("us-en", "in-en", ...).
+SEARCH_REGION = os.environ.get("SEARCH_REGION", "us-en")
+# Starter post URLs, relative to the repo root.
+SEEDS_FILE = os.environ.get("SEEDS_FILE", "seeds.txt")
 
 # Run sizes.
 BULK_TARGET = _int("BULK_TARGET", 100)

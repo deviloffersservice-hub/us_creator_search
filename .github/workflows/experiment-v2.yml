@@ -4,6 +4,11 @@ name: Creator pipeline v2 (main sheet)
 # the Actions cache. (The file keeps its experiment-era name so the running hourly chain keeps working.)
 # Each run first queues the next one (which waits for its hour), so a crashed run can't break
 # the chain. The cron line is only a backup in case the chain is ever stopped.
+#
+# From 11 Nov 2026 10:00 IST (SWITCH_AT) the US finder stops: no new US creators, no hourly chain.
+# The cron still runs every 4 hours in "watch" mode, which only re-checks the Watching rows (they
+# can still qualify) and audits the sheet. The twice-daily recheck.yml keeps the Qualified statuses
+# up to date. The India finder (india-v2.yml) starts at the same time.
 
 on:
   workflow_dispatch:
@@ -20,7 +25,7 @@ on:
         description: "Internal: unix time this run should wait for (set by the previous run)"
         default: "0"
   schedule:
-    - cron: "53 */3 * * *"
+    - cron: "53 */4 * * *"
 
 concurrency:
   group: v2-pipeline
@@ -39,6 +44,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       MAX_CONSECUTIVE_BLOCKS: "3"  # stop after 3 refusals in a row; the next hour gets a fresh machine
       CHAIN: ${{ github.event_name == 'schedule' || inputs.chained }}
+      SWITCH_AT: "1794371400"  # 2026-11-11 10:00 IST
     steps:
       - name: Wait for this run's hour
         run: |
@@ -46,8 +52,13 @@ jobs:
           if [ "$nb" -gt "$now" ]; then echo "waiting $((nb - now))s"; sleep $((nb - now)); fi
           echo "STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
 
+      - name: Pick the mode (full until the switch to India, then only Watching re-checks)
+        run: |
+          if [ "$(date +%s)" -ge "$SWITCH_AT" ]; then mode=watch; else mode=full; fi
+          echo "MODE=$mode" >> "$GITHUB_ENV"; echo "mode: $mode"
+
       - name: Queue the next hourly run now (a crash in this run can't break the chain)
-        if: ${{ env.CHAIN == 'true' && !inputs.dry_run }}
+        if: ${{ env.CHAIN == 'true' && env.MODE == 'full' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -69,15 +80,15 @@ jobs:
           restore-keys: v2-state-
 
       - name: Copy creators from the experiment sheet (once)
-        if: ${{ !inputs.dry_run }}
+        if: ${{ env.MODE == 'full' && !inputs.dry_run }}
         run: python -m v2.migrate
 
       - name: Discover (dry run)
-        if: ${{ inputs.dry_run }}
+        if: ${{ env.MODE == 'full' && inputs.dry_run }}
         run: python -m v2.discover --no-sheet --no-save --target 20 --max-pages 120
 
       - name: Discover
-        if: ${{ !cancelled() && !inputs.dry_run }}
+        if: ${{ !cancelled() && env.MODE == 'full' && !inputs.dry_run }}
         run: >
           python -m v2.discover
           ${{ github.event_name == 'schedule' && '--min-gap-minutes 30' || '' }}
@@ -87,12 +98,12 @@ jobs:
         run: python -m v2.verify
 
       - name: Recheck a batch of qualified creators
-        if: ${{ !cancelled() && !inputs.dry_run }}
+        if: ${{ !cancelled() && env.MODE == 'full' && !inputs.dry_run }}
         run: python -m v2.recheck
 
       - name: Run Log and alerts
         id: runlog
-        if: ${{ !cancelled() && !inputs.dry_run }}
+        if: ${{ !cancelled() && env.MODE == 'full' && !inputs.dry_run }}
         continue-on-error: true  # memory must still be saved; the alert is re-raised below
         run: python -m v2.runlog
 

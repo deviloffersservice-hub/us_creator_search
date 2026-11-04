@@ -92,3 +92,15 @@ def test_known_creators_reads_links_hyperlinks_and_name_columns():
 def test_time_format_round_trip():
     t = sheets.now_ist().replace(second=0, microsecond=0)
     assert sheets.parse_time(sheets.fmt_time(t)) == t
+
+
+def test_known_creators_takes_names_only_from_tabs_with_the_prefix():
+    book = FakeBook({
+        "Qualified": FakeWS("Qualified", [["Name", "Profile URL"], ["Rahul Sharma", "https://www.linkedin.com/in/rahul-us/"]]),
+        "India Qualified": FakeWS("India Qualified", [["Name", "Profile URL"], ["Priya Nair", "https://in.linkedin.com/in/priya-n/"]]),
+    })
+    s = sheets.Sheet.__new__(sheets.Sheet)
+    s.book = book
+    slugs, names, _ = s.known_creators(name_prefix="India ")
+    assert {"rahul-us", "priya-n"} <= slugs  # profile links count from every tab
+    assert "priyanair" in names and "rahulsharma" not in names
