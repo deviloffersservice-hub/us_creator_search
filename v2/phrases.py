@@ -85,9 +85,12 @@ EXTRA_INDIA: dict[str, list[str]] = {
 
 
 def for_niche(niche: str) -> list[str]:
-    base = niches.NICHES.get(niche, {}).get("search", [])
-    local = EXTRA_INDIA.get(niche, []) if config.MARKET_NAME == "India" else []
-    return list(dict.fromkeys(local + base + EXTRA.get(niche, [])))
+    general = niches.NICHES.get(niche, {}).get("search", []) + EXTRA.get(niche, [])
+    if config.MARKET_NAME == "India":
+        # A bare term ("events", "author") mostly finds US posts, even with the India search region.
+        general = [p if "india" in p.lower() else f"{p} India" for p in general]
+        return list(dict.fromkeys(EXTRA_INDIA.get(niche, []) + general))
+    return list(dict.fromkeys(general))
 
 
 # Starting companies per niche (public company pages list their latest posts plus "similar

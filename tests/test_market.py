@@ -51,7 +51,7 @@ def test_india_search_terms_and_companies(monkeypatch):
         p = importlib.reload(phrases)
         terms = p.for_niche("Corporate Finance & Accounting")
         assert terms[:2] == ["chartered accountant", "CA India"]
-        assert "CPA" in terms  # the general terms are still used, after the India ones
+        assert "CPA India" in terms and "CPA" not in terms  # general terms get "India" added
         assert p.COMPANIES is p.COMPANIES_INDIA
     finally:
         monkeypatch.undo()
