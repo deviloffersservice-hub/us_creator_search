@@ -4,6 +4,7 @@
   queue:     [[url, kind, niche, reactions], ...] crawl frontier, best first
   snapshots: slug -> page data from discovery, so verify needn't re-download it within the hour
   runs:      recent run metrics (for the Run Log and alerts)
+  later:     url -> [epoch, niche]  posts too new to show related posts, to read again from epoch on
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ class State:
         self.companies: dict[str, list[str]] = data.get("companies", {})  # niche ("" = general) -> slugs to visit
         self.companies_done: dict[str, int] = data.get("companies_done", {})  # slug -> when its page was read
         self.phrases: dict[str, list[int]] = data.get("phrases", {})  # search phrase -> [times asked, times answered]
+        self.later: dict[str, list] = data.get("later", {})
         self.migrated: str = data.get("migrated", "")  # "<from sheet>-><to sheet>" once v2.migrate has copied rows
         self.current: dict = {}  # metrics for this run, filled in by each step
 
@@ -59,7 +61,7 @@ class State:
                        "runs": self.runs[-200:], "current": self.current,
                        "companies": {k: v[:300] for k, v in self.companies.items()},
                        "companies_done": self.companies_done, "migrated": self.migrated,
-                       "phrases": self.phrases}, f, separators=(",", ":"))
+                       "phrases": self.phrases, "later": self.later}, f, separators=(",", ":"))
         tmp.replace(self.path)
 
     # --- people already checked -------------------------------------------------------------
@@ -85,5 +87,8 @@ class State:
         self.seen = {s: e for s, e in self.seen.items()
                      if now - e[2] <= config.SEEN_TTL_DAYS.get(e[0], 30) * 86400}
         self.companies_done = {s: t for s, t in self.companies_done.items() if now - t <= 3 * 86400}
+        # Re-read posts for up to 10 days after they're due; keep the soonest LATER_MAX.
+        later = sorted((e[0], u, e) for u, e in self.later.items() if now - e[0] <= 10 * 86400)
+        self.later = {u: e for _, u, e in later[: config.LATER_MAX]}
         keep = config.SNAPSHOT_MINUTES * 60 * 3
         self.snapshots = {s: v for s, v in self.snapshots.items() if now - v.get("t", 0) <= keep}

@@ -94,7 +94,7 @@ class Searcher:
         failed = []
         for backend in list(self.fails):
             try:
-                results = self._ddgs().text(f"site:linkedin.com/posts {term}", region=config.SEARCH_REGION, timelimit="w",
+                results = self._ddgs().text(f"site:linkedin.com/posts {term}", region=config.SEARCH_REGION, timelimit=config.SEARCH_TIMELIMIT,
                                             max_results=self.per_query, backend=backend)
                 urls = [canonical_post_url(r["href"]) for r in results if POST_URL_RE.match(r.get("href", ""))]
             except Exception as e:  # blocked, captcha, timeout or no results

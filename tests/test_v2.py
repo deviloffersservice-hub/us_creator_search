@@ -281,3 +281,42 @@ def test_audit_finds_duplicates_rule_breakers_and_stuck_rows():
     assert audit.rule_breakers(rows, "Status", {"Active"}) == [(3, "followers 150,000")]
     assert audit.rule_breakers(rows, "Status", {"Qualified"}) == [(4, "location uk.linkedin.com")]
     assert audit.stuck_pending(rows, now) == [5]
+
+
+def test_fresh_posts_without_related_posts_are_read_again_later(tmp_path, monkeypatch):
+    """A 1-day-old post shows no related posts yet: it is remembered and comes back as a start post
+    once it is old enough, but only for authors in the market."""
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    now = datetime.now(timezone.utc)
+
+    def post(slug, country, days_ago):
+        aid = int((now - timedelta(days=days_ago)).timestamp() * 1000) << 22
+        url = f"https://www.linkedin.com/posts/{slug}_x-activity-{aid}-ab"
+        return PostPage(url=url, author=Author(slug, slug, "in", country, 800), published=now - timedelta(days=days_ago),
+                        total_posts=1, text="")
+
+    local, foreign, older = post("local", "www", 1), post("abroad", "uk", 1), post("older", "www", 6)
+    pages = {p.url: p for p in (local, foreign, older)}
+
+    class FakeFetcher:
+        def post(self, url):
+            return pages[url]
+
+    monkeypatch.setattr(discover, "Fetcher", FakeFetcher)
+    monkeypatch.setattr(discover, "topic_post_urls", lambda *a, **k: [])
+    monkeypatch.setattr(discover, "company_page", lambda *a, **k: ([], []))
+    monkeypatch.setattr(discover, "load_seed_file", lambda: list(pages))
+    monkeypatch.setattr(config, "COMPANY_EVERY", 10**6)
+    discover.run(target=5, max_pages=10, use_sheet=False, use_search=False)
+    st = State.load()
+    assert list(st.later) == [local.url]  # not the foreign author, not the 6-day-old post
+    due = st.later[local.url][0]
+    assert abs(due - (now + timedelta(days=config.RELATED_AFTER_DAYS - 1)).timestamp()) < 5
+
+    st.later[local.url][0] = int(time.time()) - 1  # now due
+    st.save()
+    seen = []
+    monkeypatch.setattr(discover, "load_seed_file", lambda: [])
+    FakeFetcher.post = lambda self, url: seen.append(url) or pages[url]
+    discover.run(target=5, max_pages=10, use_sheet=False, use_search=False)
+    assert seen == [local.url]

@@ -38,6 +38,10 @@ COMPANY_REVISIT_HOURS = _int("V2_COMPANY_REVISIT_HOURS", 24)
 # Memory of people already checked: skip re-fetching them for a while.
 SEEN_TTL_DAYS = {"small": 30, "big": 60, "nonus": 120, "company": 120, "stale": 7, "added": 3650}
 QUEUE_MAX = _int("V2_QUEUE_MAX", 20000)
+# LinkedIn shows no related posts on a post under about 3 days old. Such a post by someone in the
+# market is read again in a later run, once it is this old, so its related posts aren't lost.
+RELATED_AFTER_DAYS = _float("V2_RELATED_AFTER_DAYS", 3.5)
+LATER_MAX = _int("V2_LATER_MAX", 3000)
 SNAPSHOT_MINUTES = _int("V2_SNAPSHOT_MINUTES", 60)  # verify reuses page data this fresh
 
 # Watching: check often while new (prolific people post daily), then every few hours.

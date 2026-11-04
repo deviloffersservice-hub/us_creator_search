@@ -283,6 +283,12 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         general.push(url, K_KNOWN, niche=tag([], url))
     for url in load_seed_file():
         general.push(url, K_SEED, niche=tag([], url))
+    due = [u for u, (t, _) in st.later.items() if t <= time.time()]
+    for url in due:
+        niche = st.later.pop(url)[1]
+        lanes.get(niche, general).push(url, K_SEED, niche=niche)
+    if due:
+        log.info("%d posts read earlier, now old enough to show related posts, are back in the queue", len(due))
     tnow = time.time()
     for key, lane in [*lanes.items(), ("", general)]:
         for slug in st.companies.get(key, []) + (phrases.COMPANIES.get(key, []) if key else []):
@@ -384,6 +390,10 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                      pages, len(found), candidate_cards, skipped_known)
         a = page.author
         saw(a.slug, page.published, page.url, page.text)
+        if (not page.related and a.in_market and page.published
+                and (now - page.published).total_seconds() < config.RELATED_AFTER_DAYS * 86400):
+            st.later[url] = [int((page.published + timedelta(days=config.RELATED_AFTER_DAYS)).timestamp()),
+                             lane.niche or ""]
 
         follow = lane if lane.niche and depth < config.LANE_DEPTH else general
         for r in page.related:

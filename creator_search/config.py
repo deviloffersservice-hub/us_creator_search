@@ -30,6 +30,9 @@ MARKET_NAME = os.environ.get("MARKET_NAME", "US")
 MARKET_SUBDOMAIN = os.environ.get("MARKET_SUBDOMAIN", "www")
 # Web-search region for the starting-post searches ("us-en", "in-en", ...).
 SEARCH_REGION = os.environ.get("SEARCH_REGION", "us-en")
+# How recent the starting posts from web search are: "w" (past week) or "m" (past month). Posts under
+# ~3 days old show no related posts, so a market with few starting posts does better with "m".
+SEARCH_TIMELIMIT = os.environ.get("SEARCH_TIMELIMIT", "w")
 # Starter post URLs, relative to the repo root.
 SEEDS_FILE = os.environ.get("SEEDS_FILE", "seeds.txt")
 
