@@ -142,6 +142,24 @@ jobs:
           path: .v2state
           key: india-state-${{ github.run_id }}-${{ github.run_attempt }}
 
+      # On 11 Nov GitHub failed to start a queued run ("startup failure"), and the chain stayed
+      # dead for 4.5 hours until the cron came by. So before finishing, look for the next run.
+      - name: Queue the next run again if GitHub lost it
+        if: ${{ !cancelled() && env.CHAIN == 'true' && !inputs.dry_run }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          waiting=$(gh run list --workflow india-v2.yml --repo "$GITHUB_REPOSITORY" --limit 20 \
+            --json databaseId,status \
+            --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID and .status != \"completed\")] | length")
+          echo "runs waiting after this one: $waiting"
+          if [ "$waiting" = "0" ]; then
+            echo "the next run is gone; queueing it again"
+            gh workflow run india-v2.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+              -f chained=true -f not_before="$((STARTED_AT + 3600))"
+          fi
+
       - name: Alert (fails the run so GitHub emails you)
         if: ${{ steps.runlog.outcome == 'failure' }}
         run: |
