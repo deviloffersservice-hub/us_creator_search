@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
 
 import gspread
@@ -65,6 +66,25 @@ def _client() -> gspread.Client:
     return gspread.service_account(filename=path)
 
 
+RETRY_STATUS = {429, 500, 502, 503, 504}
+RETRY_WAITS = (5, 20, 60)  # seconds between attempts
+
+
+def _retry(call, *args, **kwargs):
+    """Runs a Google Sheets call, trying again when Google answers with a passing error
+    (rate limit or "Internal error encountered"). Only for calls that are safe to repeat:
+    reads, and writes that set fixed cells. Not for appends, which could add rows twice."""
+    for wait in (*RETRY_WAITS, None):
+        try:
+            return call(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            code = getattr(e, "code", None) or getattr(getattr(e, "response", None), "status_code", None)
+            if wait is None or code not in RETRY_STATUS:
+                raise
+            log.warning("Google Sheets answered %s; trying again in %ds", code, wait)
+            time.sleep(wait)
+
+
 class Tab:
     """A worksheet addressed by header names. Writes are RAW so values never get reformatted."""
 
@@ -86,7 +106,7 @@ class Tab:
         self._pending: list[dict] = []
 
     def rows(self) -> list[dict]:
-        values = self.ws.get_all_values()
+        values = _retry(self.ws.get_all_values)
         out = []
         for i, row in enumerate(values[1:], start=2):
             if not any(row):
@@ -111,8 +131,9 @@ class Tab:
     def flush(self):
         # Chunked so a long run never sends one giant request.
         while self._pending:
-            chunk, self._pending = self._pending[:500], self._pending[500:]
-            self.ws.batch_update(chunk, value_input_option="RAW")
+            chunk = self._pending[:500]
+            _retry(self.ws.batch_update, chunk, value_input_option="RAW")
+            self._pending = self._pending[500:]  # dropped only once Google has them
 
 
 class Sheet:
@@ -152,8 +173,8 @@ class Sheet:
         name_prefix: only take names from tabs whose title starts with it ("" = every tab).
         """
         titles = [ws.title for ws in self.book.worksheets()]
-        resp = self.book.values_batch_get([absolute_range_name(t) for t in titles],
-                                          params={"valueRenderOption": "FORMULA"})
+        resp = _retry(self.book.values_batch_get, [absolute_range_name(t) for t in titles],
+                      params={"valueRenderOption": "FORMULA"})
         slugs, names, posts = set(), set(), []
         for title, vr in zip(titles, resp.get("valueRanges", [])):
             rows = vr.get("values", [])

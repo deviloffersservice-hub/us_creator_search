@@ -104,3 +104,58 @@ def test_known_creators_takes_names_only_from_tabs_with_the_prefix():
     slugs, names, _ = s.known_creators(name_prefix="India ")
     assert {"rahul-us", "priya-n"} <= slugs  # profile links count from every tab
     assert "priyanair" in names and "rahulsharma" not in names
+
+
+class _Resp:
+    def __init__(self, code):
+        self.status_code, self.text = code, ""
+
+    def json(self):
+        return {"error": {"code": self.status_code, "message": "Internal error encountered.", "status": "INTERNAL"}}
+
+
+def _flaky_tab(monkeypatch, failures, code=500):
+    """A tab whose cell writes fail `failures` times with a Google error before working."""
+    import gspread
+
+    monkeypatch.setattr(sheets.time, "sleep", lambda s: None)
+    ws = FakeWS("Qualified")
+    tab = sheets.Tab(ws, sheets.QUALIFIED_HEADERS)
+    tab.append([{"Name": "Jane", "Status": "Active"}])
+    real, left = ws.batch_update, [failures]
+
+    def batch_update(data, value_input_option=None):
+        if left[0] > 0:
+            left[0] -= 1
+            raise gspread.exceptions.APIError(_Resp(code))
+        real(data, value_input_option)
+
+    ws.batch_update = batch_update
+    tab.set(2, {"Status": "Inactive"})
+    return tab
+
+
+def test_flush_tries_again_when_google_has_a_passing_error(monkeypatch):
+    # 12 Nov 2026: one "500 Internal error encountered" crashed the twice-daily re-check.
+    tab = _flaky_tab(monkeypatch, failures=2)
+    tab.flush()
+    assert tab.rows()[0]["Status"] == "Inactive"
+
+
+def test_flush_keeps_the_writes_when_google_stays_down(monkeypatch):
+    import gspread
+    import pytest
+
+    tab = _flaky_tab(monkeypatch, failures=99)
+    with pytest.raises(gspread.exceptions.APIError):
+        tab.flush()
+    assert len(tab._pending) == 1  # not lost: a later flush can still send them
+
+
+def test_flush_does_not_retry_a_real_mistake(monkeypatch):
+    import gspread
+    import pytest
+
+    tab = _flaky_tab(monkeypatch, failures=1, code=400)
+    with pytest.raises(gspread.exceptions.APIError):
+        tab.flush()
