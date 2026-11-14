@@ -114,7 +114,7 @@ class _Resp:
         return {"error": {"code": self.status_code, "message": "Internal error encountered.", "status": "INTERNAL"}}
 
 
-def _flaky_tab(monkeypatch, failures, code=500):
+def _flaky_tab(monkeypatch, failures, code=500, error=None):
     """A tab whose cell writes fail `failures` times with a Google error before working."""
     import gspread
 
@@ -127,7 +127,7 @@ def _flaky_tab(monkeypatch, failures, code=500):
     def batch_update(data, value_input_option=None):
         if left[0] > 0:
             left[0] -= 1
-            raise gspread.exceptions.APIError(_Resp(code))
+            raise error or gspread.exceptions.APIError(_Resp(code))
         real(data, value_input_option)
 
     ws.batch_update = batch_update
@@ -138,6 +138,15 @@ def _flaky_tab(monkeypatch, failures, code=500):
 def test_flush_tries_again_when_google_has_a_passing_error(monkeypatch):
     # 12 Nov 2026: one "500 Internal error encountered" crashed the twice-daily re-check.
     tab = _flaky_tab(monkeypatch, failures=2)
+    tab.flush()
+    assert tab.rows()[0]["Status"] == "Inactive"
+
+
+def test_flush_tries_again_when_google_drops_the_connection(monkeypatch):
+    # 13 Nov 2026: "Remote end closed connection without response" crashed the re-check.
+    import requests
+
+    tab = _flaky_tab(monkeypatch, failures=2, error=requests.exceptions.ConnectionError("aborted"))
     tab.flush()
     assert tab.rows()[0]["Status"] == "Inactive"
 

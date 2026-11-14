@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 
 import gspread
+import requests
 from gspread.utils import absolute_range_name, rowcol_to_a1
 
 from . import config
@@ -72,7 +73,8 @@ RETRY_WAITS = (5, 20, 60)  # seconds between attempts
 
 def _retry(call, *args, **kwargs):
     """Runs a Google Sheets call, trying again when Google answers with a passing error
-    (rate limit or "Internal error encountered"). Only for calls that are safe to repeat:
+    (rate limit or "Internal error encountered") or drops the connection without answering.
+    Only for calls that are safe to repeat:
     reads, and writes that set fixed cells. Not for appends, which could add rows twice."""
     for wait in (*RETRY_WAITS, None):
         try:
@@ -82,6 +84,11 @@ def _retry(call, *args, **kwargs):
             if wait is None or code not in RETRY_STATUS:
                 raise
             log.warning("Google Sheets answered %s; trying again in %ds", code, wait)
+            time.sleep(wait)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            if wait is None:
+                raise
+            log.warning("Google Sheets connection failed (%s); trying again in %ds", type(e).__name__, wait)
             time.sleep(wait)
 
 
