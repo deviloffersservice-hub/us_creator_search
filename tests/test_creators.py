@@ -491,3 +491,15 @@ def test_rows_deleted_mid_run_come_back_whole_or_not_at_all(monkeypatch):
                          "person-1": {"Flags": ""}})  # partial update: not re-added as a broken row
     rows = _score_rows(book)
     assert [creators.slug_of(r["Profile URL"]) for r in rows] == ["person-0"]
+
+
+def test_rank_follows_tier_on_checked_rows(monkeypatch):
+    book, _ = _book(2)
+    _run(monkeypatch, book, PageFetcher())
+    ws = book.tabs["India Creator Scores"]
+    rank, tier_col = ws.values[0].index("Rank"), ws.values[0].index("Tier")
+    ws.values[1][rank] = ""             # a row scored before the Rank column existed
+    ws.values[2][tier_col] = "Possible"  # a Tier edited by hand
+    _run(monkeypatch, book, PageFetcher(), limit=0)
+    assert {(r["Tier"], str(r["Rank"])) for r in _score_rows(book)} == {("Strong", "1"), ("Possible", "2")}
+    assert [r["Tier"] for r in _score_rows(book)] == ["Strong", "Possible"]

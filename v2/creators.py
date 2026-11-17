@@ -382,12 +382,20 @@ def existing_rows(tab: Tab) -> dict[str, dict]:
 
 
 def refresh_estimates(tab: Tab, cands: list[Candidate], rows: dict[str, dict], now: datetime) -> dict[str, dict]:
-    """Rows nobody has checked yet get today's estimate from the sheet data (no page visits).
-    Only cells whose value changed are written. Returns the rows as they now are."""
+    """Rows nobody has checked yet get today's estimate from the sheet data (no page visits), and
+    every row's Rank matches its Tier. Only cells whose value changed are written. Returns the rows
+    as they now are."""
     changed: dict[str, dict] = {}
     for c in cands:
         r = rows.get(c.slug)
-        if not r or r.get("Last Scored (IST)") or r.get("Retry After (IST)"):
+        if not r:
+            continue
+        if r.get("Last Scored (IST)") or r.get("Retry After (IST)"):
+            # Checked rows keep their result; only Rank follows Tier (blank on rows from before
+            # the Rank column, or after a Tier was edited by hand).
+            rank = TIER_RANK.get(r.get("Tier", ""))
+            if rank is not None and str(r.get("Rank", "")) != str(rank):
+                changed[c.slug] = {"Rank": rank}
             continue
         estimate = build_row(c, {}, None, None, now, scored=False)
         diff = {k: v for k, v in estimate.items() if str(v) != str(r.get(k, ""))}
