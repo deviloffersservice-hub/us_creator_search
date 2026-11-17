@@ -5,8 +5,9 @@ name: India creator check
 # "India Creator Scores" tab, best first. See v2/creators.py.
 #
 # Each run opens up to 1,200 post pages (~30 minutes). New people are checked first, then people
-# whose page failed to load, then anyone last checked over 7 days ago. GitHub drops some hourly
-# runs; that only slows things down, nothing is lost.
+# whose page failed to load, then anyone last checked over 7 days ago. While people are still
+# due, each run queues the next one straight away; the 3-hourly cron restarts the chain if it
+# stops and picks up weekly rechecks once everyone has been scored.
 
 on:
   workflow_dispatch:
@@ -18,8 +19,12 @@ on:
         description: "Dry run: check and print, write nothing to the sheet"
         type: boolean
         default: false
+      chained:
+        description: "Queue another run when this one finishes, while people are still due"
+        type: boolean
+        default: true
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 */3 * * *"
 
 concurrency:
   group: india-creator-check
@@ -27,6 +32,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write  # lets a run queue the next one
 
 jobs:
   check:
@@ -52,7 +58,18 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Check creators
+        id: check
         run: >
           python -m v2.creators
           --limit "${{ inputs.limit || '1200' }}"
           ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Queue the next run while people are still due
+        if: >-
+          ${{ !inputs.dry_run && (github.event_name == 'schedule' || inputs.chained)
+          && steps.check.outputs.left != '0' && steps.check.outputs.blocked != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run india-creator-check.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f chained=true -f limit="${{ inputs.limit || '1200' }}"

@@ -503,3 +503,10 @@ def test_rank_follows_tier_on_checked_rows(monkeypatch):
     _run(monkeypatch, book, PageFetcher(), limit=0)
     assert {(r["Tier"], str(r["Rank"])) for r in _score_rows(book)} == {("Strong", "1"), ("Possible", "2")}
     assert [r["Tier"] for r in _score_rows(book)] == ["Strong", "Possible"]
+
+
+def test_report_left_writes_github_output(tmp_path, monkeypatch):
+    out = tmp_path / "out.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    creators.report_left(42, False)
+    assert out.read_text() == "left=42\nblocked=false\n"

@@ -29,6 +29,7 @@ Built so a good creator is never dropped because of a problem on our side:
 from __future__ import annotations
 
 import argparse
+import os
 import logging
 import re
 import sys
@@ -426,8 +427,9 @@ def run(limit: int, dry_run: bool) -> int:
 
     if out:
         rows = refresh_estimates(out, cands, rows, now)
-    todo = due(cands, rows, now, limit)
-    log.info("%d people due for a check this run", len(todo))
+    backlog = due(cands, rows, now, len(cands))
+    todo = backlog[:limit]
+    log.info("%d people due for a check this run (%d due in all)", len(todo), len(backlog))
     fetcher, updates, tally, blocked = Fetcher(), {}, Counter(), False
     for i, c in enumerate(todo, 1):
         if time.time() - started > config.CREATOR_MAX_MINUTES * 60:
@@ -453,7 +455,17 @@ def run(limit: int, dry_run: bool) -> int:
         log.info("whole tab now: %s", dict(overall))
     log.info("done: %s; %d pages opened in %.0f min", dict(tally), fetcher.requests_made,
              (time.time() - started) / 60)
+    report_left(len(backlog) - sum(tally.values()) + tally["retry later"], blocked)
     return 2 if blocked and not sum(tally.values()) else 0
+
+
+def report_left(left: int, blocked: bool) -> None:
+    """Tell the workflow how many are still due, so it queues the next run only while work remains."""
+    log.info("%d people still due after this run", left)
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a") as f:
+            f.write(f"left={left}\nblocked={str(blocked).lower()}\n")
 
 
 def main():
