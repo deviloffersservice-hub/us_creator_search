@@ -91,9 +91,14 @@ def test_pace_needs_three_days():
     assert creators.pace([(_t(2), 100), (_t(0), 110)]) == (None, None)
 
 
-def test_pace_when_post_count_drops_is_unknown_and_flagged():
+def test_pace_when_post_count_drops_a_lot_is_unknown_and_flagged():
     value, flag = creators.pace([(_t(7), 100), (_t(0), 90)])
     assert value is None and flag
+
+
+def test_a_small_drop_from_a_deleted_post_is_not_flagged():
+    # 51 of 11,019 people in the real data, median drop 0.4%: someone deleted a post.
+    assert creators.pace([(_t(7), 1171), (_t(0), 1164)]) == (None, None)
 
 
 # --- scoring ---------------------------------------------------------------------------------
@@ -323,12 +328,17 @@ class FakeWS:
     def add_cols(self, n):
         pass
 
-    def sort(self, spec):
-        col, _ = spec
-        head, body = self.values[:1], self.values[1:]
-        key = lambda r: (r[col - 1] == "", -(int(r[col - 1]) if r[col - 1] != "" else 0))  # noqa: E731
-        self.values = head + sorted(body, key=key)
-        self.sorted_by = col
+    def sort(self, *specs, range=None):
+        start, end = range.split(":")
+        first, last = a1_to_rowcol(start)[0], a1_to_rowcol(end)[0]
+        body = self.values[first - 1:last]
+        for col, order in reversed(specs):  # stable sorts, last key first; blanks always at the end
+            filled = [r for r in body if len(r) >= col and r[col - 1] != ""]
+            blank = [r for r in body if not (len(r) >= col and r[col - 1] != "")]
+            filled.sort(key=lambda r: float(r[col - 1]), reverse=order == "des")
+            body = filled + blank
+        self.values[first - 1:last] = body
+        self.sorted_by = (specs, range)
 
 
 class FakeBook:
@@ -400,7 +410,19 @@ def test_run_scores_everyone_and_sorts(monkeypatch):
     assert _run(monkeypatch, book, PageFetcher()) == 0
     rows = _score_rows(book)
     assert len(rows) == 3 and {r["Tier"] for r in rows} == {"Strong"}
-    assert book.tabs["India Creator Scores"].sorted_by == creators.SCORE_HEADERS.index("Score") + 1
+
+
+def test_sort_covers_every_row_and_puts_tiers_in_order(monkeypatch):
+    # The first run sorted only rows 2-1,000 (the size the tab had when created).
+    book, _ = _book(1200)
+    weak = {n: Unavailable("x") for n in range(1, 1200, 2)}  # half the people: page didn't load
+    _run(monkeypatch, book, PageFetcher(fail=weak), limit=1200)
+    rows = _score_rows(book)
+    assert len(rows) == 1200
+    tiers = [r["Tier"] for r in rows]
+    assert tiers == sorted(tiers, key=lambda t: creators.TIER_RANK[t])  # Strong ... Needs check, no mixing
+    _, rng = book.tabs["India Creator Scores"].sorted_by
+    assert rng.endswith("1201")
     # Source tabs are only read, never written.
     assert book.tabs["India not in DB"].values[0] == ["Name", "Profile URL", "Niche", "Followers", "Last Activity"]
 
@@ -443,3 +465,29 @@ def test_dry_run_writes_nothing(monkeypatch):
     book, _ = _book(2)
     _run(monkeypatch, book, PageFetcher(), dry_run=True)
     assert "India Creator Scores" not in book.tabs
+
+
+def test_unchecked_rows_get_a_refreshed_estimate_with_only_changed_cells(monkeypatch):
+    book, _ = _book(3)
+    _run(monkeypatch, book, PageFetcher(), limit=0)  # rows added, nobody checked
+    ws = book.tabs["India Creator Scores"]
+    flags = ws.values[0].index("Flags")
+    ws.values[1][flags] = "post count went down (deleted posts?)"  # written by an older version
+    writes = []
+    real = ws.batch_update
+    monkeypatch.setattr(ws, "batch_update", lambda chunk, **kw: (writes.extend(chunk), real(chunk, **kw)))
+    _run(monkeypatch, book, PageFetcher(), limit=0)
+    assert all(r["Flags"] == "" for r in _score_rows(book))
+    assert len(writes) == 1  # just that one cell
+
+
+def test_rows_deleted_mid_run_come_back_whole_or_not_at_all(monkeypatch):
+    book, _ = _book(2)
+    _run(monkeypatch, book, PageFetcher())
+    ws = book.tabs["India Creator Scores"]
+    ws.values = ws.values[:1]  # someone deleted every row
+    tab = creators.Tab(ws, creators.SCORE_HEADERS)
+    creators.write(tab, {"person-0": {"Tier": "Strong", "Profile URL": "https://www.linkedin.com/in/person-0"},
+                         "person-1": {"Flags": ""}})  # partial update: not re-added as a broken row
+    rows = _score_rows(book)
+    assert [creators.slug_of(r["Profile URL"]) for r in rows] == ["person-0"]

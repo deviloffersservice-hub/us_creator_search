@@ -37,6 +37,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from gspread.utils import rowcol_to_a1
+
 from creator_search.linkedin import Blocked, Fetcher, NotFound, PostPage, Unavailable, normalize_slug, to_int
 from creator_search.sheets import PROFILE_RE, Sheet, Tab, _retry, fmt_time, normalize_name, parse_time
 
@@ -48,8 +50,10 @@ SCORE_HEADERS = [
     "Name", "Profile URL", "Niche", "Followers", "Tier", "Score", "Lifetime Posts", "Posts / Week",
     "Best Reactions", "Best Comments", "Latest Reactions", "Latest Comments", "Engagement %", "Flags",
     "Post URL", "Pace Since (IST)", "Pace Posts", "Checks", "Last Scored (IST)", "Last Error",
-    "Retry After (IST)",
+    "Retry After (IST)", "Rank",
 ]
+# The tab is sorted by Rank, then Score: the outreach list first, people to skip last.
+TIER_RANK = {"Strong": 1, "Possible": 2, "Needs check": 3, "Organisation?": 4, "Not a creator": 5}
 
 STRONG_AT = 60
 POSSIBLE_AT = 35
@@ -58,6 +62,7 @@ MIN_KNOWN = 45  # points that must be measurable before any tier is given (e.g. 
 STRONG_AUDIENCE = (50, 10)  # reactions, or comments
 POSSIBLE_AUDIENCE = (15, 5)
 MIN_PACE_DAYS = 3
+BIG_DROP = 0.05  # a post count falling more than this is worth a flag; less is just a deleted post
 FRESH_POST_DAYS = 2
 
 # (minimum, points), highest first. A value below every minimum scores 0.
@@ -141,7 +146,8 @@ def pace(points: list[tuple[datetime, int]]) -> tuple[float | None, str | None]:
     if days < MIN_PACE_DAYS:
         return None, None
     if last[1] < first[1]:
-        return None, "post count went down (deleted posts?)"
+        big = first[1] - last[1] > BIG_DROP * first[1]
+        return None, ("post count went down a lot (deleted posts?)" if big else None)
     return round((last[1] - first[1]) / days * 7, 1), None
 
 
@@ -256,7 +262,7 @@ def build_row(cand: Candidate, previous: dict, page: PostPage | None, url: str |
     value, known = score(lifetime, weekly, best_r, best_c)
     followers = page.author.followers if page and page.author.followers else cand.followers
     since = min(points, key=lambda p: p[0]) if points else None
-    return {
+    row = {
         "Name": cand.name, "Profile URL": cand.profile_url, "Niche": cand.niche,
         "Followers": followers if followers is not None else "",
         "Tier": tier(value, known, best_r, best_c, too_new, organisation),
@@ -276,6 +282,7 @@ def build_row(cand: Candidate, previous: dict, page: PostPage | None, url: str |
         "Last Scored (IST)": fmt_time(now) if scored else previous.get("Last Scored (IST)", ""),
         "Last Error": "", "Retry After (IST)": "",
     }
+    return {**row, "Rank": TIER_RANK[row["Tier"]]}
 
 
 def check(cand: Candidate, previous: dict, fetcher, now: datetime) -> dict:
@@ -338,7 +345,8 @@ def write(tab: Tab, updates: dict[str, dict]) -> int:
         s = slug_of(url)
         if s and s not in where:
             where[s] = i
-    missing = [values for s, values in updates.items() if s not in where]
+    # Re-add rows deleted by hand mid-run, but only whole rows (a partial update has no profile link).
+    missing = [values for s, values in updates.items() if s not in where and values.get("Profile URL")]
     for s, values in updates.items():
         if s in where:
             tab.set(where[s], {k: v for k, v in values.items() if k in tab.headers})
@@ -347,6 +355,17 @@ def write(tab: Tab, updates: dict[str, dict]) -> int:
         log.warning("%d rows were deleted from the tab during the run; adding them back", len(missing))
         tab.append(missing)
     return len(updates)
+
+
+def sort(tab: Tab) -> None:
+    """Best first: by Rank, then Score. The range is counted from the data, because the
+    worksheet object remembers the size the tab had when it was opened."""
+    rows = len(_retry(tab.ws.col_values, tab.headers.index("Profile URL") + 1))
+    if rows < 3:
+        return
+    last = rowcol_to_a1(rows, len(tab.headers))
+    _retry(tab.ws.sort, (tab.headers.index("Rank") + 1, "asc"), (tab.headers.index("Score") + 1, "des"),
+           range=f"A2:{last}")
 
 
 def existing_rows(tab: Tab) -> dict[str, dict]:
@@ -360,6 +379,24 @@ def existing_rows(tab: Tab) -> dict[str, dict]:
     if dupes:
         log.warning("%d repeated people in %s; only the first row of each is used", dupes, tab.ws.title)
     return rows
+
+
+def refresh_estimates(tab: Tab, cands: list[Candidate], rows: dict[str, dict], now: datetime) -> dict[str, dict]:
+    """Rows nobody has checked yet get today's estimate from the sheet data (no page visits).
+    Only cells whose value changed are written. Returns the rows as they now are."""
+    changed: dict[str, dict] = {}
+    for c in cands:
+        r = rows.get(c.slug)
+        if not r or r.get("Last Scored (IST)") or r.get("Retry After (IST)"):
+            continue
+        estimate = build_row(c, {}, None, None, now, scored=False)
+        diff = {k: v for k, v in estimate.items() if str(v) != str(r.get(k, ""))}
+        if diff:
+            changed[c.slug] = diff
+    if changed:
+        write(tab, changed)
+        log.info("refreshed the estimate on %d unchecked rows", len(changed))
+    return {s: ({**r, **{k: str(v) for k, v in changed[s].items()}} if s in changed else r) for s, r in rows.items()}
 
 
 def run(limit: int, dry_run: bool) -> int:
@@ -379,6 +416,8 @@ def run(limit: int, dry_run: bool) -> int:
         log.info("added %d new people with a first estimate from the sheet alone", len(fresh))
         rows = existing_rows(out)
 
+    if out:
+        rows = refresh_estimates(out, cands, rows, now)
     todo = due(cands, rows, now, limit)
     log.info("%d people due for a check this run", len(todo))
     fetcher, updates, tally, blocked = Fetcher(), {}, Counter(), False
@@ -401,8 +440,7 @@ def run(limit: int, dry_run: bool) -> int:
             updates = {}
     if out:
         write(out, updates)
-        score_col = SCORE_HEADERS.index("Score") + 1
-        _retry(out.ws.sort, (score_col, "des"))
+        sort(out)
         overall = Counter(r.get("Tier", "") for r in existing_rows(out).values())
         log.info("whole tab now: %s", dict(overall))
     log.info("done: %s; %d pages opened in %.0f min", dict(tally), fetcher.requests_made,
