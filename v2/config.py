@@ -57,3 +57,13 @@ ALERT_AFTER_EMPTY_RUNS = _int("V2_ALERT_AFTER_EMPTY_RUNS", 3)
 # clearly out of range (under 80% of the minimum or over 120% of the maximum).
 CARD_MARGIN_LOW = _float("V2_CARD_MARGIN_LOW", 0.8)
 CARD_MARGIN_HIGH = _float("V2_CARD_MARGIN_HIGH", 1.2)
+
+# Creator check (v2.creators): scores the people in CREATOR_SOURCE_TAB on how much of a creator they are
+# (lifetime posts, posting pace, reactions and comments) and keeps the result in CREATOR_SCORE_TAB.
+CREATOR_SOURCE_TAB = os.environ.get("CREATOR_SOURCE_TAB", "India not in DB")
+CREATOR_SCORE_TAB = os.environ.get("CREATOR_SCORE_TAB", "India Creator Scores")
+CREATOR_CHECK_PER_RUN = _int("CREATOR_CHECK_PER_RUN", 1200)  # post pages opened per run (~1.4 s each)
+CREATOR_MAX_MINUTES = _float("CREATOR_MAX_MINUTES", 90)  # stop opening pages after this, save, finish
+CREATOR_RESCORE_DAYS = _int("CREATOR_RESCORE_DAYS", 7)
+CREATOR_RETRY_HOURS = _int("CREATOR_RETRY_HOURS", 3)  # after a page failed to load
+CREATOR_FLUSH_EVERY = _int("CREATOR_FLUSH_EVERY", 50)  # results written to the sheet every N creators

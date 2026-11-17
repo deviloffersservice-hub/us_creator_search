@@ -46,6 +46,11 @@ class NotFound(Exception):
     pass
 
 
+class Unavailable(NotFound):
+    """The page could not be loaded right now (network errors, server errors). Unlike a plain
+    NotFound the post may well exist, so callers that care can try again later."""
+
+
 def activity_time(activity_id: int | str) -> datetime:
     """LinkedIn activity ids are snowflakes: the top 41 bits are epoch milliseconds."""
     return datetime.fromtimestamp((int(activity_id) >> 22) / 1000, tz=timezone.utc)
@@ -128,6 +133,11 @@ class PostPage:
     total_posts: int | None
     text: str
     related: list[RelatedPost] = field(default_factory=list)
+    reactions: int | None = None  # on this post; None = the page didn't say
+    comments: int | None = None
+    # LinkedIn shows "3000+ Posts" for very active people; total_posts stays None then (it can't be
+    # compared between checks) and this holds the lower bound.
+    posts_at_least: int | None = None
 
 
 def _author_from_url(url: str, name: str = "", followers: int | None = None) -> Author:
@@ -157,6 +167,30 @@ def _main_jsonld(page: str) -> dict:
     return {}
 
 
+def _post_counter(stats, kind: str) -> int | None:
+    for s in stats if isinstance(stats, list) else [stats]:
+        if isinstance(s, dict) and kind in str(s.get("interactionType", "")):
+            return to_int(s.get("userInteractionCount"))
+    return None
+
+
+def parse_engagement(page: str, ld: dict) -> tuple[int | None, int | None]:
+    """Reactions and comments on the page's own post. JSON-LD first; else the counters in the
+    page markup, read only above the related-posts list so another person's post never counts."""
+    stats = ld.get("interactionStatistic")
+    reactions = _post_counter(stats, "LikeAction")
+    comments = _post_counter(stats, "CommentAction")
+    if comments is None:
+        comments = to_int(ld.get("commentCount"))
+    cut = page.find("related-posts")
+    own = page[: cut] if cut >= 0 else page
+    if reactions is None and (m := re.search(r'data-num-reactions="(\d+)"', own)):
+        reactions = int(m.group(1))
+    if comments is None and (m := re.search(r'data-num-comments="(\d+)"', own)):
+        comments = int(m.group(1))
+    return reactions, comments
+
+
 def parse_post_page(page: str, url: str) -> PostPage:
     ld = _main_jsonld(page)
     raw_author = ld.get("author") or ld.get("creator") or {}
@@ -170,6 +204,10 @@ def parse_post_page(page: str, url: str) -> PostPage:
         author.followers = to_int(m.group(1)) if m else None
     m = re.search(r'public-post-author-card__posts.*?>\s*([\d,]+)\s+Posts?\s*<', page, re.S)
     total_posts = to_int(m.group(1)) if m else None
+    posts_at_least = total_posts
+    if total_posts is None:
+        m = re.search(r'public-post-author-card__posts.*?>\s*([\d,]+)\+\s+Posts?\s*<', page, re.S)
+        posts_at_least = to_int(m.group(1)) if m else None
 
     published = None
     if ld.get("datePublished"):
@@ -178,8 +216,10 @@ def parse_post_page(page: str, url: str) -> PostPage:
         published = activity_time(aid)
 
     text = " ".join(str(ld.get(k, "")) for k in ("headline", "articleBody", "description", "keywords"))
+    reactions, comments = parse_engagement(page, ld)
     return PostPage(url=canonical_post_url(url), author=author, published=published,
-                    total_posts=total_posts, text=text, related=parse_related(page))
+                    total_posts=total_posts, text=text, related=parse_related(page),
+                    reactions=reactions, comments=comments, posts_at_least=posts_at_least)
 
 
 def parse_related(page: str) -> list[RelatedPost]:
@@ -266,7 +306,7 @@ class Fetcher:
             else:
                 log.warning("HTTP %s on %s", r.status_code, url)
                 time.sleep(5)
-        raise NotFound(f"gave up on {url}")
+        raise Unavailable(f"gave up on {url}")
 
     def post(self, url: str) -> PostPage:
         return parse_post_page(self.get(url), url)

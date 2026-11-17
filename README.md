@@ -122,6 +122,39 @@ The market is set by environment variables, so the same code serves both: `MARKE
 `V2_QUALIFIED_TAB`, `V2_RUN_LOG_TAB`, `V2_NAME_TABS_PREFIX`. The switch time is `SWITCH_AT` /
 `START_AT` in the two workflows.
 
+## India creator check (for outreach)
+
+Having 5,000+ followers and one recent post doesn't make someone a creator. `python -m v2.creators`
+(workflow **India creator check**, hourly) scores everyone in the **India not in DB** tab and keeps
+the result in **India Creator Scores**, best first. Filter that tab on **Tier** for the outreach list.
+
+| Part of the score | Points | From |
+|---|---|---|
+| Lifetime posts | 30 | the author card on their post page ("3000+" counts as 3,000) |
+| Posting pace | 25 | posts per week, from post counts recorded at least 3 days apart |
+| Best reactions | 30 | the most reactions seen on any of their posts |
+| Best comments | 15 | the most comments seen on any of their posts |
+
+Unknown parts are left out of the score, not counted as zero. Tiers:
+
+- **Strong:** score 60+ and an audience (50+ reactions or 10+ comments on a post)
+- **Possible:** score 35+ and 15+ reactions or 5+ comments
+- **Not a creator:** engagement was read and is too low. This is mostly people who post a lot
+  that nobody reacts to.
+- **Needs check:** not enough known yet (engagement not read, or their newest post is under 2 days old)
+- **Organisation?:** the name looks like a company or association using a personal profile
+
+A good creator is never dropped because of a problem on our side. A page that fails to load keeps
+the previous result and is retried 3 hours later. A dead post link falls back to the person's other
+known links. A changed profile link is still recognised. Best reactions/comments only go up.
+Results are written by profile link, so sorting or filtering the tab by hand mid-run is safe.
+
+In a 120-person live test (17 Nov), 19 were Strong, 32 Possible and 69 Not a creator. All 120 pages
+loaded and engagement was read on every one.
+
+Limits: reactions and comments usually come from one post per person (the one the finder saw), so
+treat "Not a creator" near the thresholds as "probably". Public pages don't show emails.
+
 ## Setup (one time, about 10 minutes)
 
 ### 1. Create a Google service account (free)
