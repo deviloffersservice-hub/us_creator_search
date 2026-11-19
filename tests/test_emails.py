@@ -68,7 +68,9 @@ def test_find_tries_queries_until_hit_and_reports_errors():
         raise SearchRefused(q)
 
     assert emails.find(p, refuse, pause=0) == (None, "Error")
-    assert emails.find(p, lambda q, b: [], pause=0) == (None, "Not found")
+    assert emails.find(p, lambda q, b: [], pause=0) == (None, "Error")  # never saw their page
+    own_no_email = [res("https://in.linkedin.com/in/khanakarodia", "HR leader")]
+    assert emails.find(p, lambda q, b: own_no_email, pause=0) == (None, "Not found")
 
 
 def test_people_orders_strong_first_then_score_and_skips_others():
@@ -136,7 +138,7 @@ def _searcher(hits):
         i = int(q.split("Person ")[1].split()[0].strip('"'))
         if i in hits:
             return [emails_res(i)]
-        return []
+        return [res(f"https://in.linkedin.com/in/person-{i}", "Creator. No email here.")]
     return search
 
 
@@ -247,12 +249,12 @@ def test_find_tries_the_next_engine_when_one_shows_nothing():
 
     def searcher(q, backend):
         tried.append(backend)
-        if backend == "startpage":
+        if backend == "auto":
             return [res("https://in.linkedin.com/in/khanakarodia", "Open to connect: khanakarodia05@gmail.com")]
         return [res("https://in.linkedin.com/in/khanakarodia", "HR leader")]
 
     found, status = emails.find(p, searcher, pause=0)
-    assert status == "Found" and tried == ["yahoo", "startpage"]
+    assert status == "Found" and tried == ["yahoo", "yahoo", "auto"]
 
 
 def test_search_turns_engine_errors_into_refused(monkeypatch):

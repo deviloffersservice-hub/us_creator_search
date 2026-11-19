@@ -51,17 +51,16 @@ COLLAB_WORDS = ("collab", "brand", "business", "contact", "hello", "hi", "work",
 GMAIL_QUERY = "{name} linkedin gmail"
 COLLAB_QUERY = "{name} linkedin email collaboration"
 # (query, engine) tried in order until one shows an email on the person's own page. Engines answer
-# the same query differently (and differently per server), so the best query goes to each engine.
-# "auto" is ddgs's own mix of whatever engines answer.
+# the same query differently, so the best query goes to more than one. "auto" is ddgs's own mix.
+# (Startpage answers nothing from GitHub's servers, so it is left out.)
 PLAN = (
     (GMAIL_QUERY, "yahoo"),
-    (GMAIL_QUERY, "startpage"),
     (COLLAB_QUERY, "yahoo"),
     (GMAIL_QUERY, "auto"),
-    (COLLAB_QUERY, "startpage"),
 )
+EMPTY_PAUSE_SECONDS = 8.0  # engines throttle by answering "no results"; slow down when that happens
 PAUSE_SECONDS = 2.0
-GIVE_UP_AFTER = 8  # people in a row whose every query was refused -> the engines are blocking us
+GIVE_UP_AFTER = 15  # people in a row whose page never showed up -> the engines are blocking us
 
 
 @dataclass(frozen=True)
@@ -230,24 +229,30 @@ def search(query: str, backend: str) -> list[dict]:
 
 
 def find(person: Person, searcher=search, pause: float = PAUSE_SECONDS) -> tuple[Found | None, str]:
-    """(email or None, status). Works through PLAN until a result shows an email on their own page."""
-    name, refused = clean_name(person.name) or person.slug, 0
+    """(email or None, status). Works through PLAN until a result shows an email on their own page.
+
+    "Not found" only when a search actually showed their own LinkedIn page and no email on it.
+    Throttled engines answer with no results at all, so a person whose page never showed up is
+    an "Error" and is searched again in a later run instead of being written off.
+    """
+    name, saw_own_page = clean_name(person.name) or person.slug, False
     for query, backend in PLAN:
+        q = query.format(name=name)
         try:
-            results = searcher(query.format(name=name), backend)
-            hit = pick(results, person)
-            own = sum(is_own_page(r.get("href", ""), person.slug) for r in results)
-            log.debug("  %s %r: %d results, %d on their own page, %s", backend, query.format(name=name),
-                      len(results), own, hit.email if hit else "no email")
+            results = searcher(q, backend)
         except SearchRefused as e:
-            refused += 1
-            hit = None
             log.debug("  refused: %s", e)
-        if pause:
-            time.sleep(pause)
+            results = []
+        hit = pick(results, person)
+        own = sum(is_own_page(r.get("href", ""), person.slug) for r in results)
+        saw_own_page = saw_own_page or own > 0
+        log.debug("  %s %r: %d results, %d on their own page, %s", backend, q, len(results), own,
+                  hit.email if hit else "no email")
         if hit:
             return hit, "Found"
-    return None, "Error" if refused == len(PLAN) else "Not found"
+        if pause:
+            time.sleep(pause if results else max(pause, EMPTY_PAUSE_SECONDS))
+    return None, "Not found" if saw_own_page else "Error"
 
 
 # --- run ----------------------------------------------------------------------------------------------
