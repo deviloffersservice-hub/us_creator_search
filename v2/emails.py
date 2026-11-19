@@ -48,11 +48,17 @@ PLACEHOLDER_LOCALS = {"your", "yourname", "name", "email", "abc", "xyz", "test",
 FILE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
 COLLAB_WORDS = ("collab", "brand", "business", "contact", "hello", "hi", "work", "connect",
                 "partner", "pr", "media", "info", "team", "official", "mail")
-BACKENDS = ("yahoo", "startpage", "auto")  # what ddgs offers for text search; auto = its own mix
-QUERIES = (
-    "{name} linkedin gmail",
-    '"{name}" email site:linkedin.com/in',
-    "{name} linkedin email collaboration",
+GMAIL_QUERY = "{name} linkedin gmail"
+COLLAB_QUERY = "{name} linkedin email collaboration"
+# (query, engine) tried in order until one shows an email on the person's own page. Engines answer
+# the same query differently (and differently per server), so the best query goes to each engine.
+# "auto" is ddgs's own mix of whatever engines answer.
+PLAN = (
+    (GMAIL_QUERY, "yahoo"),
+    (GMAIL_QUERY, "startpage"),
+    (COLLAB_QUERY, "yahoo"),
+    (GMAIL_QUERY, "auto"),
+    (COLLAB_QUERY, "startpage"),
 )
 PAUSE_SECONDS = 2.0
 GIVE_UP_AFTER = 8  # people in a row whose every query was refused -> the engines are blocking us
@@ -212,37 +218,36 @@ def found_count(rows: dict[str, dict]) -> int:
 
 # --- searching ----------------------------------------------------------------------------------------
 
-def search(query: str) -> list[dict]:
-    """Results from the first engine that answers. No results anywhere -> []. All refused -> raise."""
+def search(query: str, backend: str) -> list[dict]:
+    """One engine's results ([] when it has none). Raises SearchRefused when it blocks or fails."""
     from ddgs import DDGS
-    refused = 0
-    for backend in BACKENDS:
-        try:
-            return DDGS().text(query, region="in-en", max_results=10, backend=backend)
-        except Exception as e:  # ddgs raises its own types for blocks, timeouts and empty results
-            if "no results" in str(e).lower():
-                continue
-            refused += 1
-            log.debug("%s refused %r: %s", backend, query, str(e)[:100])
-    if refused == len(BACKENDS):
-        raise SearchRefused(query)
-    return []
+    try:
+        return DDGS().text(query, region="in-en", max_results=10, backend=backend)
+    except Exception as e:  # ddgs raises its own types for blocks, timeouts and empty results
+        if "no results" in str(e).lower():
+            return []
+        raise SearchRefused(f"{backend}: {str(e)[:100]}") from e
 
 
 def find(person: Person, searcher=search, pause: float = PAUSE_SECONDS) -> tuple[Found | None, str]:
-    """(email or None, status). Tries each query until one shows an email on their own page."""
+    """(email or None, status). Works through PLAN until a result shows an email on their own page."""
     name, refused = clean_name(person.name) or person.slug, 0
-    for q in QUERIES:
+    for query, backend in PLAN:
         try:
-            hit = pick(searcher(q.format(name=name)), person)
-        except SearchRefused:
+            results = searcher(query.format(name=name), backend)
+            hit = pick(results, person)
+            own = sum(is_own_page(r.get("href", ""), person.slug) for r in results)
+            log.debug("  %s %r: %d results, %d on their own page, %s", backend, query.format(name=name),
+                      len(results), own, hit.email if hit else "no email")
+        except SearchRefused as e:
             refused += 1
             hit = None
+            log.debug("  refused: %s", e)
         if pause:
             time.sleep(pause)
         if hit:
             return hit, "Found"
-    return None, "Error" if refused == len(QUERIES) else "Not found"
+    return None, "Error" if refused == len(PLAN) else "Not found"
 
 
 # --- run ----------------------------------------------------------------------------------------------
@@ -343,10 +348,13 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="search and print, write nothing")
     ap.add_argument("--shard", default="1/1", help="k/n: search the k-th of n fixed parts of the list")
     ap.add_argument("--finish", action="store_true", help="no search: sort the tab, report what is left")
+    ap.add_argument("--verbose", action="store_true", help="log every search and what it showed")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     for noisy in ("primp", "ddgs", "httpx", "httpcore"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+        logging.getLogger(noisy).setLevel(logging.ERROR)
+    if args.verbose:
+        log.setLevel(logging.DEBUG)
     if args.finish:
         sys.exit(finish(args.target))
     k, n = (int(x) for x in args.shard.split("/"))

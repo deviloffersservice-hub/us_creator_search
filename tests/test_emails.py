@@ -55,7 +55,7 @@ def test_find_tries_queries_until_hit_and_reports_errors():
     p = person()
     calls = []
 
-    def searcher(q):
+    def searcher(q, backend):
         calls.append(q)
         if len(calls) < 2:
             return []
@@ -64,11 +64,11 @@ def test_find_tries_queries_until_hit_and_reports_errors():
     found, status = emails.find(p, searcher, pause=0)
     assert status == "Found" and len(calls) == 2 and "Khanak Arodia" in calls[0]
 
-    def refuse(q):
+    def refuse(q, backend):
         raise SearchRefused(q)
 
     assert emails.find(p, refuse, pause=0) == (None, "Error")
-    assert emails.find(p, lambda q: [], pause=0) == (None, "Not found")
+    assert emails.find(p, lambda q, b: [], pause=0) == (None, "Not found")
 
 
 def test_people_orders_strong_first_then_score_and_skips_others():
@@ -130,7 +130,7 @@ def _scores(n):
 
 def _searcher(hits):
     """person-<i> has an email when i is in hits; 'refuse' raises for everyone."""
-    def search(q):
+    def search(q, backend=None):
         if hits == "refuse":
             raise SearchRefused(q)
         i = int(q.split("Person ")[1].split()[0].strip('"'))
@@ -178,7 +178,7 @@ def test_run_stops_at_target_and_next_run_does_not_repeat(monkeypatch, tmp_path)
     emails.finish(3)
     assert out.read_text().strip().endswith("left=4")  # persons 4, 1, 3, 5 never searched
     calls = []
-    _run(monkeypatch, book, target=3, searcher=lambda q: calls.append(q) or _searcher({0, 2, 4})(q))
+    _run(monkeypatch, book, target=3, searcher=lambda q, b: calls.append(q) or _searcher({0, 2, 4})(q))
     assert sum(r["Status"] == "Found" for r in _tab(book)) == 3
     assert not any("Person 0 " in c or '"Person 0"' in c for c in calls)  # already searched
 
@@ -233,10 +233,42 @@ def test_shards_split_people_without_overlap(monkeypatch):
     book = FakeBook({"India Creator Scores": _scores(6)})
     seen = []
     for k in range(3):
-        _run(monkeypatch, book, shard=k, shards=3, searcher=lambda q: seen.append(q.split('"')[1]
-                                                                                 if '"' in q else q) or [])
+        _run(monkeypatch, book, shard=k, shards=3, searcher=lambda q, b: seen.append(q) or [])
     rows = _tab(book)
     assert len(rows) == 6 and len({r["Profile URL"] for r in rows}) == 6
     assert book.tabs["India Creator Emails"].sorted_by is None  # shards never sort
     emails.finish(500)
     assert book.tabs["India Creator Emails"].sorted_by is not None
+
+
+def test_find_tries_the_next_engine_when_one_shows_nothing():
+    p = person()
+    tried = []
+
+    def searcher(q, backend):
+        tried.append(backend)
+        if backend == "startpage":
+            return [res("https://in.linkedin.com/in/khanakarodia", "Open to connect: khanakarodia05@gmail.com")]
+        return [res("https://in.linkedin.com/in/khanakarodia", "HR leader")]
+
+    found, status = emails.find(p, searcher, pause=0)
+    assert status == "Found" and tried == ["yahoo", "startpage"]
+
+
+def test_search_turns_engine_errors_into_refused(monkeypatch):
+    import ddgs
+
+    class Boom:
+        def text(self, *a, **k):
+            raise RuntimeError("202 Ratelimit")
+
+    class Empty:
+        def text(self, *a, **k):
+            raise RuntimeError("No results found.")
+
+    monkeypatch.setattr(ddgs, "DDGS", Boom)
+    import pytest
+    with pytest.raises(SearchRefused):
+        emails.search("q", "yahoo")
+    monkeypatch.setattr(ddgs, "DDGS", Empty)
+    assert emails.search("q", "yahoo") == []
