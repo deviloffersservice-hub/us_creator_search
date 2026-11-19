@@ -58,7 +58,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Find emails (part ${{ matrix.shard }})
         run: >
-          python -m v2.emails --shard "${{ matrix.shard }}"
+          python -m v2.emails --shard "${{ matrix.shard }}" --verbose
           --target "${{ inputs.target || '500' }}"
           --limit "${{ inputs.limit || '600' }}"
           --minutes 90
