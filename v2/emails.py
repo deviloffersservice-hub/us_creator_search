@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import time
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import unquote
@@ -120,24 +121,60 @@ def confidence(email: str, person: Person) -> str:
     return "Check"
 
 
+def _strip_tail(text: str, following: str) -> str:
+    """Drop the next result's text when an engine glued it onto this one (Yahoo does this)."""
+    following = following.strip()
+    if len(following) >= 20:
+        cut = text.find(following[:60])
+        if cut >= 0:
+            return text[:cut]
+    return text
+
+
+def own_texts(results: list[dict]) -> list[str]:
+    """Each result's own title + snippet, with any text that bled in from later results removed."""
+    out = []
+    for i, r in enumerate(results):
+        title, body = r.get("title", "") or "", r.get("body", "") or ""
+        if i + 1 < len(results):
+            title = _strip_tail(title, results[i + 1].get("title", "") or "")
+            body = _strip_tail(body, results[i + 1].get("body", "") or "")
+        out.append(f"{title} {body}")
+    return out
+
+
+def context(text: str, email: str, width: int = 140) -> str:
+    """The words around the email, so a person can see what it was written next to."""
+    flat = " ".join(text.split())
+    at = flat.lower().find(email)
+    if at < 0:
+        return flat[:2 * width]
+    return ("…" if at > width else "") + flat[max(0, at - width):at + len(email) + width]
+
+
 def pick(results: list[dict], person: Person) -> Found | None:
-    """The email shown on the person's own page, preferring one that looks like theirs."""
+    """The email shown on the person's own page, preferring one that looks like theirs.
+
+    Rejects an address that also shows in another result (it is someone else's, or a shared
+    inbox), and from a post accepts only an address that looks like theirs (job posts quote
+    "send CVs to hr@..."). Profiles count either way.
+    """
+    texts = own_texts(results)
+    elsewhere = {e for r, t in zip(results, texts) if not is_own_page(r.get("href", ""), person.slug)
+                 for e in emails_in(t)}
     seen: list[tuple[str, str, str]] = []
-    for r in results:
+    for r, text in zip(results, texts):
         if not is_own_page(r.get("href", ""), person.slug):
             continue
-        text = f'{r.get("title", "")} {r.get("body", "")}'
         on_post = "/posts/" in r["href"].lower()
-        # A post can quote someone else's address (job posts: "send CVs to hr@..."), so from a
-        # post only an address that clearly looks like theirs counts. Profiles count either way.
         seen.extend((e, r["href"], text) for e in emails_in(text)
-                    if not on_post or confidence(e, person) == "High")
+                    if e not in elsewhere and (not on_post or confidence(e, person) == "High"))
     if not seen:
         return None
     unique = list(dict.fromkeys(e for e, _, _ in seen))
     best = next((e for e in unique if confidence(e, person) == "High"), unique[0])
     href, text = next((h, t) for e, h, t in seen if e == best)
-    return Found(best, tuple(e for e in unique if e != best), href, " ".join(text.split())[:300])
+    return Found(best, tuple(e for e in unique if e != best), href, context(text, best))
 
 
 def people(scores: list[dict]) -> list[Person]:
@@ -211,20 +248,31 @@ def find(person: Person, searcher=search, pause: float = PAUSE_SECONDS) -> tuple
 # --- run ----------------------------------------------------------------------------------------------
 
 def due(everyone: list[Person], rows: dict[str, dict]) -> list[Person]:
-    """Never searched, plus people whose last search was refused by the engines."""
-    return [p for p in everyone if rows.get(p.slug, {}).get("Status", "") in ("", "Error")]
+    """Never searched, people whose last search was refused, and rows marked "Recheck" by hand."""
+    return [p for p in everyone if rows.get(p.slug, {}).get("Status", "") in ("", "Error", "Recheck")]
 
 
-def run(target: int, limit: int, max_minutes: float, dry_run: bool, searcher=search, pause=PAUSE_SECONDS) -> int:
+def in_shard(slug: str, shard: int, shards: int) -> bool:
+    """Fixed split by profile link, so shards never overlap even when they start at different times."""
+    return zlib.crc32(slug.encode()) % shards == shard
+
+
+def run(target: int, limit: int, max_minutes: float, dry_run: bool, searcher=search, pause=PAUSE_SECONDS,
+        shard: int = 0, shards: int = 1) -> int:
+    """Search the due people of this shard (a fixed split by profile link; each shard best-first).
+
+    Shards only append and fill in rows; they never sort, so parallel shards can't move a row
+    under each other. `finish` sorts once they are all done.
+    """
     started = time.time()
     sheet = Sheet(config.V2_SHEET_ID)
     everyone = people(read_tab(sheet, config.CREATOR_SCORE_TAB))
     out = None if dry_run else sheet.tab(config.CREATOR_EMAIL_TAB, EMAIL_HEADERS)
     rows = existing_rows(out) if out else {}
     have = found_count(rows)
-    todo = due(everyone, rows)
-    log.info("%d Strong/Possible creators; %d emails already found; %d still to search; target %d",
-             len(everyone), have, len(todo), target)
+    todo = [p for p in due(everyone, rows) if in_shard(p.slug, shard, shards)]
+    log.info("shard %d/%d: %d Strong/Possible creators; %d emails already found; %d to search here; target %d",
+             shard + 1, shards, len(everyone), have, len(todo), target)
     updates: dict[str, dict] = {}
     refused_in_a_row = searched = 0
     for p in todo:
@@ -238,18 +286,37 @@ def run(target: int, limit: int, max_minutes: float, dry_run: bool, searcher=sea
         log.info("[%d] %s (%s %d) -> %s %s", searched, p.name, p.tier, p.score, status,
                  f"{found.email} ({updates[p.slug]['Confidence']})" if found else "")
         if out and len(updates) >= config.CREATOR_FLUSH_EVERY:
-            write(out, _with_new(out, updates))
+            have = _save(out, updates)  # recount: other shards add emails too
             updates = {}
         if refused_in_a_row >= GIVE_UP_AFTER:
             log.error("search engines refused %d people in a row; stopping for now", refused_in_a_row)
             break
     if out:
-        write(out, _with_new(out, updates))
-        sort(out)
-    left = 0 if have >= target else len(todo) - searched
-    log.info("done: searched %d, %d emails in the tab (target %d), %d left to search", searched, have, target, left)
-    _report(left if refused_in_a_row < GIVE_UP_AFTER else 0)
+        have = _save(out, updates)
+    log.info("done: searched %d; %d emails in the tab (target %d)", searched, have, target)
     return 2 if refused_in_a_row >= GIVE_UP_AFTER and searched == refused_in_a_row else 0
+
+
+def finish(target: int) -> int:
+    """After the shards: sort the tab (found first) and tell the workflow whether to go on."""
+    tab = Sheet(config.V2_SHEET_ID).tab(config.CREATOR_EMAIL_TAB, EMAIL_HEADERS)
+    sort(tab)
+    rows = existing_rows(tab)
+    everyone = people(read_tab(Sheet(config.V2_SHEET_ID), config.CREATOR_SCORE_TAB))
+    have, todo = found_count(rows), len(due(everyone, rows))
+    high = sum(1 for r in rows.values() if r.get("Confidence") == "High")
+    left = 0 if have >= target else todo
+    log.info("%d emails found (%d High, %d Check), target %d; %d people still to search",
+             have, high, have - high, target, todo)
+    _report(left)
+    return 0
+
+
+def _save(tab, updates: dict[str, dict]) -> int:
+    """Write this batch and return how many emails the tab holds now."""
+    if updates:
+        write(tab, _with_new(tab, updates))
+    return found_count(existing_rows(tab))
 
 
 def _with_new(tab, updates: dict[str, dict]) -> dict[str, dict]:
@@ -274,11 +341,18 @@ def main():
     ap.add_argument("--limit", type=int, default=config.CREATOR_EMAIL_PER_RUN, help="people to search this run")
     ap.add_argument("--minutes", type=float, default=config.CREATOR_MAX_MINUTES)
     ap.add_argument("--dry-run", action="store_true", help="search and print, write nothing")
+    ap.add_argument("--shard", default="1/1", help="k/n: search the k-th of n fixed parts of the list")
+    ap.add_argument("--finish", action="store_true", help="no search: sort the tab, report what is left")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     for noisy in ("primp", "ddgs", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-    sys.exit(run(args.target, args.limit, args.minutes, args.dry_run))
+    if args.finish:
+        sys.exit(finish(args.target))
+    k, n = (int(x) for x in args.shard.split("/"))
+    if not 1 <= k <= n:
+        ap.error("--shard must be k/n with 1 <= k <= n")
+    sys.exit(run(args.target, args.limit, args.minutes, args.dry_run, shard=k - 1, shards=n))
 
 
 if __name__ == "__main__":

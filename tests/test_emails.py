@@ -85,7 +85,7 @@ def test_people_orders_strong_first_then_score_and_skips_others():
 
 def test_due_skips_done_and_retries_errors():
     ps = [person(slug="a"), person(slug="b"), person(slug="c"), person(slug="d")]
-    rows = {"a": {"Status": "Found"}, "b": {"Status": "Not found"}, "c": {"Status": "Error"}}
+    rows = {"a": {"Status": "Found"}, "b": {"Status": "Not found"}, "c": {"Status": "Error"}, "d": {"Status": "Recheck"}}
     assert [p.slug for p in emails.due(ps, rows)] == ["c", "d"]
 
 
@@ -160,6 +160,7 @@ def _tab(book):
 def test_run_writes_found_first_and_skips_non_creators(monkeypatch):
     book = FakeBook({"India Creator Scores": _scores(4)})
     assert _run(monkeypatch, book, searcher=_searcher({1, 2})) == 0
+    emails.finish(500)
     rows = _tab(book)
     assert len(rows) == 4 and "Org" not in [r["Name"] for r in rows]
     assert [r["Status"] for r in rows[:2]] == ["Found", "Found"]
@@ -172,7 +173,10 @@ def test_run_stops_at_target_and_next_run_does_not_repeat(monkeypatch, tmp_path)
     book = FakeBook({"India Creator Scores": _scores(6)})
     _run(monkeypatch, book, target=2, searcher=_searcher({0, 2, 4}))
     assert sum(r["Status"] == "Found" for r in _tab(book)) == 2
+    emails.finish(2)
     assert out.read_text().strip().endswith("left=0")
+    emails.finish(3)
+    assert out.read_text().strip().endswith("left=4")  # persons 4, 1, 3, 5 never searched
     calls = []
     _run(monkeypatch, book, target=3, searcher=lambda q: calls.append(q) or _searcher({0, 2, 4})(q))
     assert sum(r["Status"] == "Found" for r in _tab(book)) == 3
@@ -186,7 +190,8 @@ def test_run_gives_up_when_engines_refuse_and_retries_later(monkeypatch, tmp_pat
     book = FakeBook({"India Creator Scores": _scores(5)})
     assert _run(monkeypatch, book, searcher=_searcher("refuse")) == 2
     assert [r["Status"] for r in _tab(book)] == ["Error", "Error"]
-    assert out.read_text() == "left=0\n"
+    emails.finish(500)
+    assert out.read_text() == "left=5\n"  # the 2 refused are searched again, plus 3 never tried
     _run(monkeypatch, book, searcher=_searcher({0}))
     assert sum(r["Status"] == "Found" for r in _tab(book)) == 1 and len(_tab(book)) == 5
 
@@ -195,3 +200,43 @@ def test_dry_run_writes_nothing(monkeypatch):
     book = FakeBook({"India Creator Scores": _scores(2)})
     _run(monkeypatch, book, dry_run=True, searcher=_searcher({0}))
     assert "India Creator Emails" not in book.tabs
+
+
+def test_own_texts_removes_text_bled_in_from_the_next_result():
+    results = [
+        res("https://in.linkedin.com/in/rajinder", "Founder of Trident. He can be reached at rajendra.g@gmail.com today",
+            "Rajinder Gupta - TridentRajendra Gupta - Top Database"),
+        res("https://in.linkedin.com/in/rajendraguptas", "He can be reached at rajendra.g@gmail.com today",
+            "Rajendra Gupta - Top Database"),
+    ]
+    texts = emails.own_texts(results)
+    assert "rajendra.g@gmail.com" not in texts[0] and "Rajendra" not in texts[0]
+    assert "rajendra.g@gmail.com" in texts[1]
+    p = person(name="Rajinder Gupta", slug="rajinder")
+    assert emails.pick(results, p) is None
+
+
+def test_pick_rejects_an_email_that_also_shows_on_someone_elses_page():
+    p = person()
+    results = [res("https://in.linkedin.com/in/khanakarodia", "jobs: hiring.team@gmail.com"),
+               res("https://in.linkedin.com/in/other", "jobs: hiring.team@gmail.com and more")]
+    assert emails.pick(results, p) is None
+
+
+def test_context_shows_words_around_the_email():
+    text = "x " * 200 + "📩 Email: Leena.kakani@gmail.com · Experience: Brand"
+    c = emails.context(text, "leena.kakani@gmail.com", width=20)
+    assert c.startswith("…") and "Leena.kakani@gmail.com · Experience" in c
+
+
+def test_shards_split_people_without_overlap(monkeypatch):
+    book = FakeBook({"India Creator Scores": _scores(6)})
+    seen = []
+    for k in range(3):
+        _run(monkeypatch, book, shard=k, shards=3, searcher=lambda q: seen.append(q.split('"')[1]
+                                                                                 if '"' in q else q) or [])
+    rows = _tab(book)
+    assert len(rows) == 6 and len({r["Profile URL"] for r in rows}) == 6
+    assert book.tabs["India Creator Emails"].sorted_by is None  # shards never sort
+    emails.finish(500)
+    assert book.tabs["India Creator Emails"].sorted_by is not None

@@ -2,8 +2,10 @@ name: India creator emails
 
 # Finds the public collab email of the Strong, then Possible, creators in "India Creator Scores"
 # (from search-engine snippets of their own LinkedIn page) and keeps them in "India Creator
-# Emails". Each run queues the next one until the target number of emails is reached or
-# everyone has been searched. See v2/emails.py.
+# Emails". Three fixed parts of the list are searched side by side (separate machines, so the
+# search engines see three different addresses); then one step sorts the tab and queues the next
+# run, until the target number of emails is reached or everyone has been searched.
+# See v2/emails.py.
 
 on:
   workflow_dispatch:
@@ -12,7 +14,7 @@ on:
         description: "Stop once this many emails are found"
         default: "500"
       limit:
-        description: "People to search this run"
+        description: "People to search per part per run"
         default: "600"
       dry_run:
         description: "Dry run: search and print, write nothing to the sheet"
@@ -31,17 +33,22 @@ permissions:
   contents: read
   actions: write  # lets a run queue the next one
 
+env:
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+  PYTHONUNBUFFERED: "1"
+  MARKET_NAME: India
+  MARKET_SUBDOMAIN: in
+  CREATOR_SCORE_TAB: India Creator Scores
+  CREATOR_EMAIL_TAB: India Creator Emails
+
 jobs:
-  emails:
+  search:
     runs-on: ubuntu-latest
     timeout-minutes: 110
-    env:
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      PYTHONUNBUFFERED: "1"
-      MARKET_NAME: India
-      MARKET_SUBDOMAIN: in
-      CREATOR_SCORE_TAB: India Creator Scores
-      CREATOR_EMAIL_TAB: India Creator Emails
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -49,18 +56,32 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-
-      - name: Find emails
-        id: emails
+      - name: Find emails (part ${{ matrix.shard }})
         run: >
-          python -m v2.emails
+          python -m v2.emails --shard "${{ matrix.shard }}"
           --target "${{ inputs.target || '500' }}"
           --limit "${{ inputs.limit || '600' }}"
           --minutes 90
           ${{ inputs.dry_run && '--dry-run' || '' }}
 
+  finish:
+    needs: search
+    if: ${{ always() && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Sort the tab and count
+        id: finish
+        run: python -m v2.emails --finish --target "${{ inputs.target || '500' }}"
       - name: Queue the next run until the target is reached
-        if: ${{ !inputs.dry_run && inputs.chained && steps.emails.outputs.left != '0' }}
+        # A part that failed (all search engines refusing us) stops the chain instead of looping.
+        if: ${{ inputs.chained && needs.search.result == 'success' && steps.finish.outputs.left != '0' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
