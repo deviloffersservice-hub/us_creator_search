@@ -67,3 +67,8 @@ CREATOR_MAX_MINUTES = _float("CREATOR_MAX_MINUTES", 90)  # stop opening pages af
 CREATOR_RESCORE_DAYS = _int("CREATOR_RESCORE_DAYS", 7)
 CREATOR_RETRY_HOURS = _int("CREATOR_RETRY_HOURS", 3)  # after a page failed to load
 CREATOR_FLUSH_EVERY = _int("CREATOR_FLUSH_EVERY", 50)  # results written to the sheet every N creators
+
+# India creator emails (v2/emails.py): public collab emails of the Strong/Possible creators.
+CREATOR_EMAIL_TAB = os.environ.get("CREATOR_EMAIL_TAB", "India Creator Emails")
+CREATOR_EMAIL_TARGET = _int("CREATOR_EMAIL_TARGET", 500)  # stop once this many emails are found
+CREATOR_EMAIL_PER_RUN = _int("CREATOR_EMAIL_PER_RUN", 600)  # people searched per run

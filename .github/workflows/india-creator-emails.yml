@@ -1,0 +1,68 @@
+name: India creator emails
+
+# Finds the public collab email of the Strong, then Possible, creators in "India Creator Scores"
+# (from search-engine snippets of their own LinkedIn page) and keeps them in "India Creator
+# Emails". Each run queues the next one until the target number of emails is reached or
+# everyone has been searched. See v2/emails.py.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Stop once this many emails are found"
+        default: "500"
+      limit:
+        description: "People to search this run"
+        default: "600"
+      dry_run:
+        description: "Dry run: search and print, write nothing to the sheet"
+        type: boolean
+        default: false
+      chained:
+        description: "Queue another run when this one finishes, until the target is reached"
+        type: boolean
+        default: true
+
+concurrency:
+  group: india-creator-emails
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write  # lets a run queue the next one
+
+jobs:
+  emails:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      PYTHONUNBUFFERED: "1"
+      MARKET_NAME: India
+      MARKET_SUBDOMAIN: in
+      CREATOR_SCORE_TAB: India Creator Scores
+      CREATOR_EMAIL_TAB: India Creator Emails
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Find emails
+        id: emails
+        run: >
+          python -m v2.emails
+          --target "${{ inputs.target || '500' }}"
+          --limit "${{ inputs.limit || '600' }}"
+          --minutes 90
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Queue the next run until the target is reached
+        if: ${{ !inputs.dry_run && inputs.chained && steps.emails.outputs.left != '0' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run india-creator-emails.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f chained=true -f target="${{ inputs.target || '500' }}" -f limit="${{ inputs.limit || '600' }}"

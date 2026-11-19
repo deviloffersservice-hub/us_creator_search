@@ -230,3 +230,12 @@ The repo is public, so GitHub Actions minutes are free and unlimited. Hourly run
 
 If the **Actions** tab shows nothing after a change to the workflow files, check **Settings →
 Actions → General** and make sure Actions are allowed for this repository.
+
+## India creator emails (for outreach)
+
+`v2/emails.py` (workflow **India creator emails**, started by hand) finds a public contact email for the
+Strong, then Possible, creators in **India Creator Scores** and writes them to **India Creator Emails**.
+It searches the web for each creator and keeps an address only when it shows in the search snippet of
+that creator's own LinkedIn profile (or, if it clearly looks like theirs, one of their own posts).
+Runs chain until the target (default 500) is reached. Confidence **High** = the address has part of
+their name or a collab word; **Check** = on their own profile, but look before sending.
