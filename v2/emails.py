@@ -259,7 +259,10 @@ def find(person: Person, searcher=search, pause: float = PAUSE_SECONDS) -> tuple
 
 def due(everyone: list[Person], rows: dict[str, dict]) -> list[Person]:
     """Never searched, people whose last search was refused, and rows marked "Recheck" by hand."""
-    return [p for p in everyone if rows.get(p.slug, {}).get("Status", "") in ("", "Error", "Recheck")]
+    status = {p.slug: rows.get(p.slug, {}).get("Status", "") for p in everyone}
+    fresh = [p for p in everyone if status[p.slug] in ("", "Recheck")]
+    retry = [p for p in everyone if status[p.slug] == "Error"]  # throttled before: after the fresh ones
+    return fresh + retry
 
 
 def in_shard(slug: str, shard: int, shards: int) -> bool:

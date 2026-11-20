@@ -24,6 +24,8 @@ on:
         description: "Queue another run when this one finishes, until the target is reached"
         type: boolean
         default: true
+  schedule:
+    - cron: "41 */3 * * *"  # restarts the chain if it stopped (e.g. a part was throttled)
 
 concurrency:
   group: india-creator-emails
@@ -81,7 +83,7 @@ jobs:
         run: python -m v2.emails --finish --target "${{ inputs.target || '500' }}"
       - name: Queue the next run until the target is reached
         # A part that failed (all search engines refusing us) stops the chain instead of looping.
-        if: ${{ inputs.chained && needs.search.result == 'success' && steps.finish.outputs.left != '0' }}
+        if: ${{ (github.event_name == 'schedule' || inputs.chained) && needs.search.result == 'success' && steps.finish.outputs.left != '0' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

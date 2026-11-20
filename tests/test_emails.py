@@ -88,7 +88,7 @@ def test_people_orders_strong_first_then_score_and_skips_others():
 def test_due_skips_done_and_retries_errors():
     ps = [person(slug="a"), person(slug="b"), person(slug="c"), person(slug="d")]
     rows = {"a": {"Status": "Found"}, "b": {"Status": "Not found"}, "c": {"Status": "Error"}, "d": {"Status": "Recheck"}}
-    assert [p.slug for p in emails.due(ps, rows)] == ["c", "d"]
+    assert [p.slug for p in emails.due(ps, rows)] == ["d", "c"]  # throttled ones last
 
 
 def test_row_for_sets_rank_by_status_and_confidence():
