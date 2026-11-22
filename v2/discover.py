@@ -172,6 +172,18 @@ def reaction_bucket(n: int) -> str:
     return "0-9" if n < 10 else "10-49" if n < 50 else "50-199" if n < 200 else "200+"
 
 
+def age_bucket(published: datetime | None, now: datetime) -> str:
+    """A post's age in the steps that matter: its author can qualify from it, can only be followed
+    (Watching) from it, or it is too old for either."""
+    if published is None:
+        return "no date"
+    if rules.recent(published, now):
+        return f"0-{v1config.MAX_POST_AGE_DAYS} days"
+    if rules.recent(published, now, days=v1config.MAX_SEEN_POST_AGE_DAYS):
+        return f"{v1config.MAX_POST_AGE_DAYS + 1}-{v1config.MAX_SEEN_POST_AGE_DAYS} days"
+    return "older"
+
+
 def rejection_status(page) -> str | None:
     a = page.author
     if not a.is_person:
@@ -311,6 +323,8 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
     related_cards = related_with_followers = card_rejected = 0
     card_followers: dict[str, int] = {}  # follower count shown on related-post cards, to check against post pages
     card_checks = Counter()
+    card_ages = Counter()  # new in-market people on related-post cards, by the age of the post shown
+    by_age: dict[str, Counter] = defaultdict(Counter)  # new-person pages: post age -> outcome
     turn = 0
 
     def saw(slug: str, published: datetime | None, url: str, text: str = ""):
@@ -414,6 +428,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
                 else:
                     rkind = K_CANDIDATE
                     candidate_cards += 1
+                    card_ages[age_bucket(r.published, now)] += 1
                     if ra.followers is not None:
                         likely = True
                         card_followers[ra.slug] = ra.followers
@@ -428,6 +443,7 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
             outcomes[KIND_NAMES[kind]][what] += 1
             if kind == K_CANDIDATE:
                 by_reactions[reaction_bucket(reactions)][what] += 1
+                by_age[age_bucket(page.published, now)][what] += 1
 
         if not a.is_person or not a.slug:
             outcome("company" if a.slug else "unreadable")
@@ -491,6 +507,9 @@ def run(target: int, max_pages: int, use_sheet: bool, use_search: bool, min_gap_
         if by_reactions[bucket]:
             c = by_reactions[bucket]
             log.info("  new-person posts with %-6s reactions %4d: %s", bucket, sum(c.values()), dict(c.most_common()))
+    for bucket, c in sorted(by_age.items()):
+        log.info("  new-person posts %-10s old %4d: %s", bucket, sum(c.values()), dict(c.most_common()))
+    log.info("new people on related-post cards, by the age of the post shown: %s", dict(card_ages.most_common()))
     log.info("related post cards: %d, %d of them show a follower count; %d people rejected from the card alone; "
              "card vs page follower counts: %s", related_cards, related_with_followers, card_rejected, dict(card_checks))
 

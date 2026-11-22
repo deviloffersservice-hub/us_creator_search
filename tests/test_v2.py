@@ -320,3 +320,13 @@ def test_fresh_posts_without_related_posts_are_read_again_later(tmp_path, monkey
     FakeFetcher.post = lambda self, url: seen.append(url) or pages[url]
     discover.run(target=5, max_pages=10, use_sheet=False, use_search=False)
     assert seen == [local.url]
+
+
+def test_age_bucket_follows_the_market_limits(monkeypatch):
+    from creator_search import config as v1config
+    monkeypatch.setattr(v1config, "MAX_POST_AGE_DAYS", 14)
+    monkeypatch.setattr(v1config, "MAX_SEEN_POST_AGE_DAYS", 90)
+    assert discover.age_bucket(None, NOW) == "no date"
+    assert discover.age_bucket(NOW - timedelta(days=3), NOW) == "0-14 days"
+    assert discover.age_bucket(NOW - timedelta(days=15), NOW) == "15-90 days"
+    assert discover.age_bucket(NOW - timedelta(days=91), NOW) == "older"
