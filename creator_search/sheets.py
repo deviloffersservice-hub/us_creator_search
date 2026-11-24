@@ -139,7 +139,9 @@ class Tab:
         # Chunked so a long run never sends one giant request.
         while self._pending:
             chunk = self._pending[:500]
-            _retry(self.ws.batch_update, chunk, value_input_option="RAW")
+            # gspread rewrites each "range" in place to "'Tab'!A1", so a retry must send fresh
+            # copies: re-sending the same dicts gave "'Tab'!'Tab'!A1" and a 400 (23 Nov 2026).
+            _retry(lambda: self.ws.batch_update([dict(d) for d in chunk], value_input_option="RAW"))
             self._pending = self._pending[500:]  # dropped only once Google has them
 
 

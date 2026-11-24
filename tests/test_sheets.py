@@ -168,3 +168,29 @@ def test_flush_does_not_retry_a_real_mistake(monkeypatch):
     tab = _flaky_tab(monkeypatch, failures=1, code=400)
     with pytest.raises(gspread.exceptions.APIError):
         tab.flush()
+
+
+def test_flush_retry_sends_the_cell_ranges_unchanged(monkeypatch):
+    # 23 Nov 2026: gspread prefixes each range with the tab name in place, so after a dropped
+    # connection the retry sent "'India Qualified'!'India Qualified'!D9243" and Google said 400.
+    import requests
+
+    monkeypatch.setattr(sheets.time, "sleep", lambda s: None)
+    ws = FakeWS("Qualified")
+    tab = sheets.Tab(ws, sheets.QUALIFIED_HEADERS)
+    tab.append([{"Name": "Jane", "Status": "Active"}])
+    real, sent = ws.batch_update, []
+
+    def batch_update(data, value_input_option=None):
+        for d in data:  # what gspread does before sending
+            assert "!" not in d["range"], d["range"]
+            d["range"] = f"'{ws.title}'!{d['range']}"
+        sent.append(data)
+        if len(sent) == 1:
+            raise requests.exceptions.ConnectionError("aborted")
+        real([{**d, "range": d["range"].split("!")[-1]} for d in data], value_input_option)
+
+    ws.batch_update = batch_update
+    tab.set(2, {"Status": "Inactive"})
+    tab.flush()
+    assert len(sent) == 2 and tab.rows()[0]["Status"] == "Inactive"
