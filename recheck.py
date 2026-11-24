@@ -21,10 +21,11 @@ from creator_search.sheets import Sheet, fmt_date, fmt_time, now_ist, parse_time
 
 log = logging.getLogger("recheck")
 
-# A real move abroad is rare. When this many re-checked creators in a row all show up outside the
-# market, LinkedIn is showing profiles on another subdomain (24 Nov 2026: every India profile
-# suddenly on www.linkedin.com, and one run marked 150 creators "Moved outside India").
-MOVED_STREAK_LIMIT = 5
+# When this many re-checked creators in a row all show up on the same other subdomain, LinkedIn is
+# showing profiles there, not people moving (24 Nov 2026: every India profile suddenly on
+# www.linkedin.com, and one run marked 150 creators "Moved outside India"). Real moves come in
+# short runs of mixed countries (the US tab has runs of 6: fr, it, in, be, ca...).
+MOVED_STREAK_LIMIT = 10
 
 
 def run(limit: int) -> int:
@@ -39,7 +40,8 @@ def run(limit: int) -> int:
     fetcher = Fetcher()
     tally: dict[str, int] = {}
     blocked = False
-    held: list[tuple[int, str, dict, str]] = []  # "moved" rows, written once an in-market one follows
+    held: list[tuple[int, str, dict, str]] = []  # a run of "moved" rows, written once it looks real
+    held_countries: set[str] = set()
 
     def write(row_no: int, status: str, update: dict, line: str):
         tally[status.split(" (")[0]] = tally.get(status.split(" (")[0], 0) + 1
@@ -101,18 +103,24 @@ def run(limit: int) -> int:
         line = f"[{i}/{len(rows)}] {row.get('Name')} -> {status} {'; '.join(notes)}"
         if page and not page.author.in_market:
             held.append((row["_row"], status, update, line))
-            if len(held) >= MOVED_STREAK_LIMIT:
-                log.error("the last %d creators all show up outside %s: LinkedIn is likely showing profiles "
-                          "on another subdomain, not real moves; leaving them and the other %d unchanged",
-                          len(held), config.MARKET_NAME, len(rows) - i)
-                held = []
+            held_countries.add(page.author.country)
+            if len(held) < MOVED_STREAK_LIMIT:
+                continue
+            if len(held_countries) == 1:
+                log.error("the last %d creators all show up on %s.linkedin.com: LinkedIn is likely showing "
+                          "profiles there, not real moves; their status stays, and the other %d wait for a "
+                          "later run", len(held), page.author.country, len(rows) - i)
+                for row_no, _, upd, _ in held:  # to the back of the queue, so the re-check can't get stuck
+                    qual.set(row_no, {"Last Checked (IST)": upd["Last Checked (IST)"],
+                                      "Notes": f"shown on {page.author.country}.linkedin.com; not trusted"})
+                held, held_countries = [], set()
                 break
-            continue
-        if page:  # in market: the moves held so far look real
-            for h in held:
-                write(*h)
-            held = []
-        write(row["_row"], status, update, line)
+            # mixed countries: real moves
+        for h in held:
+            write(*h)
+        held, held_countries = [], set()
+        if not (page and not page.author.in_market):
+            write(row["_row"], status, update, line)
         if i % 25 == 0:
             qual.flush()
 

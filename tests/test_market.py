@@ -75,10 +75,10 @@ class _QualTab:
         pass
 
 
-def _recheck(monkeypatch, countries):
+def _recheck(monkeypatch, countries, tab=False):
     import recheck
 
-    tab = _QualTab(len(countries))
+    want_tab, tab = tab, _QualTab(len(countries))
     pages = iter(countries)
 
     class _Fetcher:
@@ -88,7 +88,7 @@ def _recheck(monkeypatch, countries):
     monkeypatch.setattr(recheck, "Sheet", lambda: type("S", (), {"qualified": lambda self: tab})())
     monkeypatch.setattr(recheck, "Fetcher", _Fetcher)
     assert recheck.run(len(countries)) == 0
-    return {r: v["Status"] for r, v in tab.written.items()}
+    return tab if want_tab else {r: v["Status"] for r, v in tab.written.items()}
 
 
 def test_recheck_marks_a_real_move(india, monkeypatch):
@@ -98,5 +98,14 @@ def test_recheck_marks_a_real_move(india, monkeypatch):
 
 def test_recheck_stops_when_linkedin_shows_everyone_outside_the_market(india, monkeypatch):
     # 24 Nov 2026: every India profile suddenly on www.linkedin.com; 150 marked "Moved outside India".
-    got = _recheck(monkeypatch, ["in"] + ["www"] * 20)
-    assert got == {2: "Inactive"}  # the 20 "moved" rows and the rest are left for a later run
+    tab = _recheck(monkeypatch, ["in"] + ["www"] * 20, tab=True)
+    assert tab.written[2]["Status"] == "Inactive"
+    held = [tab.written[r] for r in range(3, 13)]  # the 10 "moved": only stamped, status unchanged
+    assert all("Status" not in v and v["Last Checked (IST)"] for v in held)
+    assert len(tab.written) == 11  # the rest wait for a later run
+
+
+def test_recheck_keeps_a_long_run_of_real_moves_to_mixed_countries(india, monkeypatch):
+    countries = ["www", "fr", "it", "www", "ae", "uk", "www", "sg", "ca", "www", "au", "in"]
+    got = _recheck(monkeypatch, countries)
+    assert [got[r] for r in range(2, 13)] == ["Moved outside India"] * 11 and got[13] == "Inactive"
