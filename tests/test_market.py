@@ -57,3 +57,46 @@ def test_india_search_terms_and_companies(monkeypatch):
         monkeypatch.undo()
         p = importlib.reload(phrases)
     assert p.COMPANIES is p.COMPANIES_US and "chartered accountant" not in p.for_niche("Corporate Finance & Accounting")
+
+
+class _QualTab:
+    def __init__(self, n):
+        self._rows = [{"_row": i + 2, "Name": f"P{i}", "Latest Post URL": f"https://x/{i}",
+                       "Followers": "20,000", "Status": "Active"} for i in range(n)]
+        self.written = {}
+
+    def rows(self):
+        return [dict(r) for r in self._rows]
+
+    def set(self, row, values):
+        self.written[row] = values
+
+    def flush(self):
+        pass
+
+
+def _recheck(monkeypatch, countries):
+    import recheck
+
+    tab = _QualTab(len(countries))
+    pages = iter(countries)
+
+    class _Fetcher:
+        def post(self, url):
+            return _page(next(pages), 20_000)
+
+    monkeypatch.setattr(recheck, "Sheet", lambda: type("S", (), {"qualified": lambda self: tab})())
+    monkeypatch.setattr(recheck, "Fetcher", _Fetcher)
+    assert recheck.run(len(countries)) == 0
+    return {r: v["Status"] for r, v in tab.written.items()}
+
+
+def test_recheck_marks_a_real_move(india, monkeypatch):
+    got = _recheck(monkeypatch, ["in", "www", "in"])
+    assert got[3] == "Moved outside India" and got[2] == got[4] == "Inactive"
+
+
+def test_recheck_stops_when_linkedin_shows_everyone_outside_the_market(india, monkeypatch):
+    # 24 Nov 2026: every India profile suddenly on www.linkedin.com; 150 marked "Moved outside India".
+    got = _recheck(monkeypatch, ["in"] + ["www"] * 20)
+    assert got == {2: "Inactive"}  # the 20 "moved" rows and the rest are left for a later run

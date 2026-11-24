@@ -21,6 +21,11 @@ from creator_search.sheets import Sheet, fmt_date, fmt_time, now_ist, parse_time
 
 log = logging.getLogger("recheck")
 
+# A real move abroad is rare. When this many re-checked creators in a row all show up outside the
+# market, LinkedIn is showing profiles on another subdomain (24 Nov 2026: every India profile
+# suddenly on www.linkedin.com, and one run marked 150 creators "Moved outside India").
+MOVED_STREAK_LIMIT = 5
+
 
 def run(limit: int) -> int:
     sheet = Sheet()
@@ -34,6 +39,13 @@ def run(limit: int) -> int:
     fetcher = Fetcher()
     tally: dict[str, int] = {}
     blocked = False
+    held: list[tuple[int, str, dict, str]] = []  # "moved" rows, written once an in-market one follows
+
+    def write(row_no: int, status: str, update: dict, line: str):
+        tally[status.split(" (")[0]] = tally.get(status.split(" (")[0], 0) + 1
+        qual.set(row_no, update)
+        log.info("%s", line)
+
     for i, row in enumerate(rows, 1):
         checked_at = now_ist()
         prev_checked = parse_time(row.get("Last Checked (IST)", ""))
@@ -80,18 +92,32 @@ def run(limit: int) -> int:
             status = "Inactive"
         else:
             status = "Active"
-        tally[status.split(" (")[0]] = tally.get(status.split(" (")[0], 0) + 1
         update.update({
             "Last Activity": fmt_date(last_activity),
             "Status": status,
             "Last Checked (IST)": fmt_time(checked_at),
             "Notes": "; ".join(notes),
         })
-        qual.set(row["_row"], update)
-        log.info("[%d/%d] %s -> %s %s", i, len(rows), row.get("Name"), status, "; ".join(notes))
+        line = f"[{i}/{len(rows)}] {row.get('Name')} -> {status} {'; '.join(notes)}"
+        if page and not page.author.in_market:
+            held.append((row["_row"], status, update, line))
+            if len(held) >= MOVED_STREAK_LIMIT:
+                log.error("the last %d creators all show up outside %s: LinkedIn is likely showing profiles "
+                          "on another subdomain, not real moves; leaving them and the other %d unchanged",
+                          len(held), config.MARKET_NAME, len(rows) - i)
+                held = []
+                break
+            continue
+        if page:  # in market: the moves held so far look real
+            for h in held:
+                write(*h)
+            held = []
+        write(row["_row"], status, update, line)
         if i % 25 == 0:
             qual.flush()
 
+    for h in held:
+        write(*h)
     qual.flush()
     log.info("done: %s", tally)
     return 1 if blocked and not tally else 0
