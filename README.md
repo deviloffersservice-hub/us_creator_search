@@ -237,5 +237,9 @@ Actions → General** and make sure Actions are allowed for this repository.
 Strong, then Possible, creators in **India Creator Scores** and writes them to **India Creator Emails**.
 It searches the web for each creator and keeps an address only when it shows in the search snippet of
 that creator's own LinkedIn profile (or, if it clearly looks like theirs, one of their own posts).
-Runs chain until the target (default 500) is reached. Confidence **High** = the address has part of
-their name or a collab word; **Check** = on their own profile, but look before sending.
+Runs chain until the target (default 5000, i.e. as many as it can find) is reached or everyone has
+been searched; a schedule every 3 hours restarts the chain if it stopped. Confidence **High** = the
+address has part of their name or a collab word; **Check** = on their own profile, but look before
+sending. Status **Not found** = their profile showed with no email; **Page not found** = only
+namesakes came up, even when searching by their profile link; **Error** = the search engines
+answered nothing (throttled), so they are searched again in a later run.

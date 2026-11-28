@@ -12,7 +12,7 @@ on:
     inputs:
       target:
         description: "Stop once this many emails are found"
-        default: "500"
+        default: "5000"  # i.e. as many as the free search can find
       limit:
         description: "People to search per part per run"
         default: "600"
@@ -61,7 +61,7 @@ jobs:
       - name: Find emails (part ${{ matrix.shard }})
         run: >
           python -m v2.emails --shard "${{ matrix.shard }}" --verbose
-          --target "${{ inputs.target || '500' }}"
+          --target "${{ inputs.target || '5000' }}"
           --limit "${{ inputs.limit || '600' }}"
           --minutes 90
           ${{ inputs.dry_run && '--dry-run' || '' }}
@@ -80,7 +80,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Sort the tab and count
         id: finish
-        run: python -m v2.emails --finish --target "${{ inputs.target || '500' }}"
+        run: python -m v2.emails --finish --target "${{ inputs.target || '5000' }}"
       - name: Queue the next run until the target is reached
         # A part that failed (all search engines refusing us) stops the chain instead of looping.
         if: ${{ (github.event_name == 'schedule' || inputs.chained) && needs.search.result == 'success' && steps.finish.outputs.left != '0' }}
@@ -88,4 +88,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh workflow run india-creator-emails.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
-            -f chained=true -f target="${{ inputs.target || '500' }}" -f limit="${{ inputs.limit || '600' }}"
+            -f chained=true -f target="${{ inputs.target || '5000' }}" -f limit="${{ inputs.limit || '600' }}"

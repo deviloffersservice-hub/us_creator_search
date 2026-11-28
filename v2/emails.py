@@ -37,7 +37,8 @@ EMAIL_HEADERS = [
     "Name", "Profile URL", "Tier", "Score", "Niche", "Followers", "Email", "Confidence",
     "Other Emails", "Found In", "Snippet", "Status", "Searched (IST)", "Rank",
 ]
-STATUS_RANK = {("Found", "High"): 1, ("Found", "Check"): 2, ("Not found", ""): 3, ("Error", ""): 4}
+STATUS_RANK = {("Found", "High"): 1, ("Found", "Check"): 2, ("Not found", ""): 3, ("Page not found", ""): 4,
+               ("Error", ""): 5}
 TIERS = ("Strong", "Possible")
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -57,6 +58,12 @@ PLAN = (
     (GMAIL_QUERY, "yahoo"),
     (COLLAB_QUERY, "yahoo"),
     (GMAIL_QUERY, "auto"),
+)
+# Common names ("Aman Garg") fill every result with namesakes, so when the name searches never
+# showed their own page, search by their profile link, which the engines match exactly.
+SLUG_PLAN = (
+    ("{slug} linkedin gmail", "yahoo"),
+    ("linkedin.com/in/{slug}", "yahoo"),
 )
 EMPTY_PAUSE_SECONDS = 8.0  # engines throttle by answering "no results"; slow down when that happens
 PAUSE_SECONDS = 2.0
@@ -229,30 +236,40 @@ def search(query: str, backend: str) -> list[dict]:
 
 
 def find(person: Person, searcher=search, pause: float = PAUSE_SECONDS) -> tuple[Found | None, str]:
-    """(email or None, status). Works through PLAN until a result shows an email on their own page.
+    """(email or None, status). Searches by name (PLAN), then by profile link (SLUG_PLAN) if the
+    name searches never showed their own page, until a result shows an email on their own page.
 
-    "Not found" only when a search actually showed their own LinkedIn page and no email on it.
-    Throttled engines answer with no results at all, so a person whose page never showed up is
-    an "Error" and is searched again in a later run instead of being written off.
+    "Not found"      - a search showed their own LinkedIn page, with no email on it.
+    "Page not found" - the engines answered, but their page never showed up (namesakes only).
+    "Error"          - every search came back empty or refused: throttled engines answer that
+                       way, so the person is searched again in a later run.
     """
-    name, saw_own_page = clean_name(person.name) or person.slug, False
-    for query, backend in PLAN:
-        q = query.format(name=name)
-        try:
-            results = searcher(q, backend)
-        except SearchRefused as e:
-            log.debug("  refused: %s", e)
-            results = []
+    names = {"name": clean_name(person.name) or person.slug, "slug": unquote(person.slug)}
+    saw_own_page = got_results = False
+    for query, backend in PLAN + SLUG_PLAN:
+        if saw_own_page and "{slug}" in query:
+            break  # their page showed with no email; searching by link would show the same
+        results = _results(searcher, query.format(**names), backend)
         hit = pick(results, person)
         own = sum(is_own_page(r.get("href", ""), person.slug) for r in results)
-        saw_own_page = saw_own_page or own > 0
-        log.debug("  %s %r: %d results, %d on their own page, %s", backend, q, len(results), own,
-                  hit.email if hit else "no email")
+        saw_own_page, got_results = saw_own_page or own > 0, got_results or bool(results)
+        log.debug("  %s %r: %d results, %d on their own page, %s", backend, query.format(**names),
+                  len(results), own, hit.email if hit else "no email")
         if hit:
             return hit, "Found"
         if pause:
             time.sleep(pause if results else max(pause, EMPTY_PAUSE_SECONDS))
-    return None, "Not found" if saw_own_page else "Error"
+    if saw_own_page:
+        return None, "Not found"
+    return None, "Page not found" if got_results else "Error"
+
+
+def _results(searcher, query: str, backend: str) -> list[dict]:
+    try:
+        return searcher(query, backend)
+    except SearchRefused as e:
+        log.debug("  refused: %s", e)
+        return []
 
 
 # --- run ----------------------------------------------------------------------------------------------

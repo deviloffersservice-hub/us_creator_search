@@ -73,6 +73,33 @@ def test_find_tries_queries_until_hit_and_reports_errors():
     assert emails.find(p, lambda q, b: own_no_email, pause=0) == (None, "Not found")
 
 
+def test_find_searches_by_profile_link_when_namesakes_hide_their_page():
+    p = person(name="Aman Garg", slug="amangarg4")
+    namesakes = [res("https://in.linkedin.com/in/aman-garg-0860741a7", "aman.other@gmail.com")]
+    tried = []
+
+    def searcher(q, backend):
+        tried.append(q)
+        if "amangarg4" in q:
+            return [res("https://in.linkedin.com/in/amangarg4", "Collab: amangarg.creates@gmail.com")]
+        return namesakes
+
+    found, status = emails.find(p, searcher, pause=0)
+    assert status == "Found" and found.email == "amangarg.creates@gmail.com"
+    assert tried[-1] == "amangarg4 linkedin gmail" and len(tried) == 4
+    # Engines answered every time but only with namesakes: not a block, so not retried forever
+    assert emails.find(p, lambda q, b: namesakes, pause=0) == (None, "Page not found")
+    assert emails.row_for(p, None, "Page not found", __import__("datetime").datetime.now())["Rank"] == 4
+
+
+def test_find_skips_link_search_once_their_page_showed():
+    p = person()
+    tried = []
+    own_no_email = [res("https://in.linkedin.com/in/khanakarodia", "HR leader")]
+    assert emails.find(p, lambda q, b: tried.append(q) or own_no_email, pause=0) == (None, "Not found")
+    assert len(tried) == len(emails.PLAN)
+
+
 def test_people_orders_strong_first_then_score_and_skips_others():
     rows = [
         {"Name": "A", "Profile URL": "https://www.linkedin.com/in/a", "Tier": "Possible", "Score": "99"},
