@@ -91,6 +91,14 @@ def test_due_skips_done_and_retries_errors():
     assert [p.slug for p in emails.due(ps, rows)] == ["d", "c"]  # throttled ones last
 
 
+def test_due_retries_errors_least_recently_searched_first():
+    ps = [person(slug="a"), person(slug="b"), person(slug="c")]
+    rows = {"a": {"Status": "Error", "Searched (IST)": "2026-11-28 07:10"},
+            "b": {"Status": "Error", "Searched (IST)": "2026-11-27 22:00"},
+            "c": {"Status": "Error", "Searched (IST)": "2026-11-28 07:10"}}
+    assert [p.slug for p in emails.due(ps, rows)] == ["b", "a", "c"]  # ties keep the score order
+
+
 def test_row_for_sets_rank_by_status_and_confidence():
     p = person()
     found = emails.Found("khanakarodia05@gmail.com", (), "https://in.linkedin.com/in/khanakarodia", "s")

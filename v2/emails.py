@@ -261,7 +261,11 @@ def due(everyone: list[Person], rows: dict[str, dict]) -> list[Person]:
     """Never searched, people whose last search was refused, and rows marked "Recheck" by hand."""
     status = {p.slug: rows.get(p.slug, {}).get("Status", "") for p in everyone}
     fresh = [p for p in everyone if status[p.slug] in ("", "Recheck")]
-    retry = [p for p in everyone if status[p.slug] == "Error"]  # throttled before: after the fresh ones
+    # Throttled before: after the fresh ones, least recently searched first. Without this rotation
+    # the same best-scored people (often common names whose page never shows up) head every run,
+    # use up the give-up allowance and stall the chain on them forever.
+    retry = sorted((p for p in everyone if status[p.slug] == "Error"),
+                   key=lambda p: rows.get(p.slug, {}).get("Searched (IST)", ""))
     return fresh + retry
 
 
